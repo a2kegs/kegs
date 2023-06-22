@@ -1,4 +1,4 @@
-const char rcsid_xdriver_c[] = "@(#)$KmKId: xdriver.c,v 1.238 2023-05-17 19:49:54+00 kentd Exp $";
+const char rcsid_xdriver_c[] = "@(#)$KmKId: xdriver.c,v 1.240 2023-06-16 19:30:18+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -36,9 +36,6 @@ void _XInitImageFuncPtrs(XImage *xim);
 
 #include "defc.h"
 
-extern word32 g_cycs_in_run_16ms;
-extern word32 g_cycs_in_refresh_ximage;
-extern word32 g_cycs_in_check_input;
 extern int g_video_scale_algorithm;
 extern int g_audio_enable;
 
@@ -230,7 +227,6 @@ int	g_x_a2_key_to_xsym[][3] = {
 int
 main(int argc, char **argv)
 {
-	word32	start_time, time1, time2, end_time;
 	int	ret, mdepth;
 
 	ret = parse_argv(argc, argv, 1);
@@ -249,22 +245,18 @@ main(int argc, char **argv)
 	}
 	x_video_init();
 
+	// This is the main loop of KEGS, when this exits, KEGS exits
+	//  run_16ms() does one video frame worth of instructions and video
+	//  updates: 17030 1MHz clock cycles.
 	while(1) {
-		GET_ITIMER(start_time);
 		ret = run_16ms();
 		if(ret != 0) {
 			printf("run_16ms returned: %d\n", ret);
 			break;
 		}
-		GET_ITIMER(time1);
-		g_cycs_in_run_16ms += (time1 - start_time);
+		x_input_events();
 		x_update_display(&g_mainwin_info);
 		x_update_display(&g_debugwin_info);
-		GET_ITIMER(time2);
-		g_cycs_in_refresh_ximage += (time2 - time1);
-		x_input_events();
-		GET_ITIMER(end_time);
-		g_cycs_in_check_input += (end_time - time2);
 	}
 	xdriver_end();
 	exit(0);
@@ -284,7 +276,6 @@ my_error_handler(Display *display, XErrorEvent *ev)
 void
 xdriver_end()
 {
-
 	printf("xdriver_end\n");
 	if(g_display) {
 		x_auto_repeat_on(1);
@@ -577,7 +568,7 @@ x_init_window(Window_info *win_info_ptr, Kimage *kimage_ptr, char *name_str)
 	win_info_ptr->x_use_shmem = x_use_shmem;
 
 	video_update_scale(kimage_ptr, win_info_ptr->width_req,
-						win_info_ptr->main_height);
+						win_info_ptr->main_height, 1);
 }
 
 void
@@ -670,26 +661,30 @@ xhandle_shm_error(Display *display, XErrorEvent *event)
 void
 x_allocate_window_data(Window_info *win_info_ptr)
 {
+	int	width, height;
+
+	width = g_x_max_width;
+	height = g_x_max_height;
+	video_set_max_width_height(win_info_ptr->kimage_ptr, width, height);
+
 	if(win_info_ptr->x_use_shmem) {
 		win_info_ptr->x_use_shmem = 0;		// Default to no shmem
-		get_shm(win_info_ptr);
+		get_shm(win_info_ptr, width, height);
 	}
 	if(!win_info_ptr->x_use_shmem) {
-		get_ximage(win_info_ptr);
+		get_ximage(win_info_ptr, width, height);
 	}
 }
 
 void
-get_shm(Window_info *win_info_ptr)
+get_shm(Window_info *win_info_ptr, int width, int height)
 {
 #ifdef X_SHARED_MEM
 	XShmSegmentInfo *seginfo;
 	XImage *xim;
 	int	(*old_x_handler)(Display *, XErrorEvent *);
-	int	width, height, depth, size;
+	int	depth, size;
 
-	width = g_x_max_width;
-	height = g_x_max_height;
 	depth = g_x_screen_depth;		// 24, actual bits per pixel
 
 	seginfo = (XShmSegmentInfo *)malloc(sizeof(XShmSegmentInfo));
@@ -769,14 +764,12 @@ get_shm(Window_info *win_info_ptr)
 }
 
 void
-get_ximage(Window_info *win_info_ptr)
+get_ximage(Window_info *win_info_ptr, int width, int height)
 {
 	XImage	*xim;
 	byte	*ptr;
-	int	width, height, depth, mdepth, size;
+	int	depth, mdepth, size;
 
-	width = g_x_max_width;
-	height = g_x_max_height;
 	depth = g_x_screen_depth;
 	mdepth = g_x_screen_mdepth;
 
@@ -830,7 +823,7 @@ x_set_size_hints(Window_info *win_info_ptr)
 	width = win_info_ptr->width_req;
 	height = win_info_ptr->main_height;
 	kimage_ptr = win_info_ptr->kimage_ptr;
-	video_update_scale(kimage_ptr, width, height);
+	video_update_scale(kimage_ptr, width, height, 0);
 
 	a2_width = video_get_a2_width(kimage_ptr);
 	a2_height = video_get_a2_height(kimage_ptr);
@@ -853,6 +846,7 @@ x_set_size_hints(Window_info *win_info_ptr)
 
 	XSetWMProperties(g_display, win_info_ptr->x_win, &my_winText,
 		&my_winText, 0, 0, &my_winSizeHints, 0, &my_winClassHint);
+	// printf("Did XSetWMProperties w:%d h:%d\n", width, height);
 }
 
 void
@@ -868,8 +862,6 @@ x_resize_window(Window_info *win_info_ptr)
 	win_info_ptr->main_height = MY_MIN(x_height, g_x_max_height);
 	win_info_ptr->width_req = MY_MIN(x_width, g_x_max_width);
 
-	x_set_size_hints(win_info_ptr);
-
 	ret = XResizeWindow(g_display, win_info_ptr->x_win, x_width, x_height);
 	if(0) {
 		printf("XResizeWindow ret:%d, w:%d, h:%d\n", ret, x_width,
@@ -881,14 +873,10 @@ void
 x_update_display(Window_info *win_info_ptr)
 {
 	Change_rect rect;
-	int	did_copy, valid, x_active, a2_active, x_height;
+	int	did_copy, valid, x_active, a2_active;
 	int	i;
 
 	// Update active state
-	x_height = video_get_x_height(win_info_ptr->kimage_ptr);
-	if(x_height != win_info_ptr->main_height) {
-		x_resize_window(win_info_ptr);
-	}
 	a2_active = video_get_active(win_info_ptr->kimage_ptr);
 	x_active = win_info_ptr->active;
 	if(x_active && !a2_active) {
@@ -908,6 +896,11 @@ x_update_display(Window_info *win_info_ptr)
 	}
 	if(x_active == 0) {
 		return;
+	}
+
+	if(video_change_aspect_needed(win_info_ptr->kimage_ptr,
+			win_info_ptr->width_req, win_info_ptr->main_height)) {
+		x_resize_window(win_info_ptr);
 	}
 	did_copy = 0;
 	for(i = 0; i < MAX_CHANGE_RECTS; i++) {
@@ -1190,6 +1183,7 @@ x_input_events()
 		case Expose:
 			win_info_ptr = x_find_xwin(ev.xexpose.window);
 			refresh_needed = -1;
+			//printf("Got an Expose event\n");
 			break;
 		case NoExpose:
 			/* do nothing */
@@ -1227,7 +1221,7 @@ x_input_events()
 			}
 			break;
 		case ConfigureNotify:
-			win_info_ptr = x_find_xwin(ev.xmotion.window);
+			win_info_ptr = x_find_xwin(ev.xconfigure.window);
 			width = ev.xconfigure.width;
 			height = ev.xconfigure.height;
 #if 0
@@ -1235,7 +1229,7 @@ x_input_events()
 				width, height);
 #endif
 			video_update_scale(win_info_ptr->kimage_ptr, width,
-								height);
+								height, 0);
 			break;
 		case SelectionRequest:
 			//printf("SelectionRequest received\n");
@@ -1333,6 +1327,7 @@ x_input_events()
 	}
 
 	if(refresh_needed && win_info_ptr) {
+		//printf("...at end, refresh_needed:%d\n", refresh_needed);
 		video_set_x_refresh_needed(win_info_ptr->kimage_ptr, 1);
 	}
 
@@ -1400,10 +1395,9 @@ x_handle_keysym(XEvent *xev_in)
 			}
 			printf("g_video_scale_algorithm = %d\n",
 						g_video_scale_algorithm);
-			video_set_x_refresh_needed(win_info_ptr->kimage_ptr, 1);
 			video_update_scale(win_info_ptr->kimage_ptr,
 					win_info_ptr->width_req,
-					win_info_ptr->main_height);
+					win_info_ptr->main_height, 1);
 		}
 		break;
 	case 0x1000003:

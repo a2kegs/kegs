@@ -1,4 +1,17 @@
 
+Changes in KEGS v1.28 since v1.27 (06/21/23)
+- Reduce status lines under the window from 7 lines of text to 4.
+- Fix Windows10 crash when KEGS was minimized (Windows set the window size to
+	0, which was unexpected, and led to a divide-by-0).
+- Enable live window resizing on Windows64.  Speed up the video scaling for
+	X11 and Windows.
+- Allow the ZipGS speed, which was fixed at 8MHz previously), be set to
+	8MHz, 16MHz, 32MHz, 64MHz, or 128MHz.
+- Fix a false read bug which broke SCC emulation.  LDA $BFFD,X where X=$3D
+	was "false" reading $C039, not $BF39 as it should, leading to SCC
+	state being incorrect.
+
+
 Changes in KEGS v1.27 since v1.26 (06/13/23)
 - Ignore WDM 0xfc,0xfd,0xff to avoid HOST.FST causing Code Red.
 - Fix $C019 reading to match Deater's Midline demo

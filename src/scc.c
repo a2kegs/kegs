@@ -1,4 +1,4 @@
-const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.58 2023-05-19 13:52:54+00 kentd Exp $";
+const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.59 2023-06-21 21:15:26+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -490,59 +490,6 @@ show_scc_state()
 
 }
 
-#define LEN_SCC_LOG	50
-STRUCT(Scc_log) {
-	int	regnum;
-	word32	val;
-	dword64	dfcyc;
-};
-
-Scc_log	g_scc_log[LEN_SCC_LOG];
-int	g_scc_log_pos = 0;
-
-#define SCC_REGNUM(wr,port,reg) ((wr << 8) + (port << 4) + reg)
-
-void
-scc_log(int regnum, word32 val, dword64 dfcyc)
-{
-	int	pos;
-
-	pos = g_scc_log_pos;
-	g_scc_log[pos].regnum = regnum;
-	g_scc_log[pos].val = val;
-	g_scc_log[pos].dfcyc = dfcyc;
-	pos++;
-	if(pos >= LEN_SCC_LOG) {
-		pos = 0;
-	}
-	g_scc_log_pos = pos;
-}
-
-void
-show_scc_log(void)
-{
-	dword64	dfcyc;
-	int	regnum;
-	int	pos;
-	int	i;
-
-	pos = g_scc_log_pos;
-	dfcyc = g_cur_dfcyc;
-	printf("SCC log pos: %d, cur dfcyc:%016llx\n", pos, dfcyc);
-	for(i = 0; i < LEN_SCC_LOG; i++) {
-		pos--;
-		if(pos < 0) {
-			pos = LEN_SCC_LOG - 1;
-		}
-		regnum = g_scc_log[pos].regnum;
-		printf("%d:%d: port:%d wr:%d reg: %d val:%02x at t:%016llx\n",
-			i, pos, (regnum >> 4) & 0xf, (regnum >> 8),
-			(regnum & 0xf),
-			g_scc_log[pos].val,
-			g_scc_log[pos].dfcyc - dfcyc);
-	}
-}
-
 word32
 scc_read_reg(int port, dword64 dfcyc)
 {
@@ -634,9 +581,7 @@ scc_read_reg(int port, dword64 dfcyc)
 
 	scc_ptr->reg_ptr = 0;
 	scc_printf("Read c03%x, rr%d, ret: %02x\n", 8+port, regnum, ret);
-	if(regnum != 0 && regnum != 3) {
-		scc_log(SCC_REGNUM(0,port,regnum), ret, dfcyc);
-	}
+	dbg_log_info(dfcyc, regnum, ret, 0xc039 - port);
 
 	return ret;
 }
@@ -645,16 +590,14 @@ void
 scc_write_reg(int port, word32 val, dword64 dfcyc)
 {
 	Scc	*scc_ptr;
-	word32	old_val;
-	word32	changed_bits;
-	word32	irq_mask;
-	int	regnum;
-	int	mode;
-	int	tmp1;
+	word32	old_val, changed_bits, irq_mask;
+	int	regnum, mode, tmp1;
 
 	scc_ptr = &(g_scc[port]);
 	regnum = scc_ptr->reg_ptr & 0xf;
 	mode = scc_ptr->mode;
+
+	dbg_log_info(dfcyc, regnum, val, 0x1c039 - port);
 
 	if(mode == 0) {
 		if((val & 0xf0) == 0) {
@@ -662,16 +605,10 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 			scc_ptr->reg_ptr = val & 0xf;
 			regnum = 0;
 			scc_ptr->mode = 1;
-		} else {
-			scc_log(SCC_REGNUM(1,port,0), val, dfcyc);
 		}
 	} else {
 		scc_ptr->reg_ptr = 0;
 		scc_ptr->mode = 0;
-	}
-
-	if(regnum != 0) {
-		scc_log(SCC_REGNUM(1,port,regnum), val, dfcyc);
 	}
 
 	changed_bits = (scc_ptr->reg[regnum] ^ val) & 0xff;
@@ -710,7 +647,7 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 		case 0x4:	/* enable int on next rx char */
 		default:
 			halt_printf("Wr c03%x to wr0 of %02x, bad cmd cd:%x!\n",
-				8+port, val, tmp1);
+				9-port, val, tmp1);
 		}
 		tmp1 = (val >> 6) & 0x3;
 		switch(tmp1) {
@@ -718,7 +655,7 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 			break;
 		case 0x1:	/* reset rx crc */
 		case 0x2:	/* reset tx crc */
-			printf("Wr c03%x to wr0 of %02x!\n", 8+port, val);
+			printf("Wr c03%x to wr0 of %02x!\n", 9-port, val);
 			break;
 		case 0x3:	/* reset tx underrun/eom latch */
 			/* if no extern status pending, or being reset now */
@@ -1231,11 +1168,10 @@ scc_read_data(int port, dword64 dfcyc)
 	scc_printf("SCC read %04x: ret %02x, depth:%d\n", 0xc03b-port, ret,
 			depth);
 
-	scc_log(SCC_REGNUM(0,port,8), ret, dfcyc);
+	dbg_log_info(dfcyc, 0, ret, 0xc03b - port);
 
 	return ret;
 }
-
 
 void
 scc_write_data(int port, word32 val, dword64 dfcyc)
@@ -1243,7 +1179,7 @@ scc_write_data(int port, word32 val, dword64 dfcyc)
 	Scc	*scc_ptr;
 
 	scc_printf("SCC write %04x: %02x\n", 0xc03b-port, val);
-	scc_log(SCC_REGNUM(1,port,8), val, dfcyc);
+	dbg_log_info(dfcyc, val, 0, 0x1c03b - port);
 
 	scc_ptr = &(g_scc[port]);
 	if(scc_ptr->reg[14] & 0x10) {

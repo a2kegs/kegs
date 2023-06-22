@@ -11,7 +11,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.138 2023-06-08 01:35:25+00 kentd Exp $";
+const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.141 2023-06-21 21:15:21+00 kentd Exp $";
 #endif
 
 #ifdef __GNUC__
@@ -299,8 +299,6 @@ void scc_try_fill_readbuf(int port, dword64 dfcyc);
 void scc_update(dword64 dfcyc);
 void do_scc_event(int type, dword64 dfcyc);
 void show_scc_state(void);
-void scc_log(int regnum, word32 val, dword64 dfcyc);
-void show_scc_log(void);
 word32 scc_read_reg(int port, dword64 dfcyc);
 void scc_write_reg(int port, word32 val, dword64 dfcyc);
 void scc_maybe_br_event(int port, dword64 dfcyc);
@@ -804,6 +802,7 @@ char *video_get_status_ptr(int line);
 void video_set_x_refresh_needed(Kimage *kimage_ptr, int do_refresh);
 int video_get_active(Kimage *kimage_ptr);
 void video_set_active(Kimage *kimage_ptr, int active);
+void video_set_max_width_height(Kimage *kimage_ptr, int width, int height);
 void video_init(int mdepth);
 void video_init_kimage(Kimage *kimage_ptr, int width, int height);
 void show_a2_line_stuff(void);
@@ -842,14 +841,15 @@ int video_get_a2_width(Kimage *kimage_ptr);
 int video_get_x_width(Kimage *kimage_ptr);
 int video_get_a2_height(Kimage *kimage_ptr);
 int video_get_x_height(Kimage *kimage_ptr);
+int video_change_aspect_needed(Kimage *kimage_ptr, int x_width, int x_height);
 void video_update_status_enable(Kimage *kimage_ptr);
 int video_out_query(Kimage *kimage_ptr);
 void video_out_done(Kimage *kimage_ptr);
 int video_out_data(void *vptr, Kimage *kimage_ptr, int out_width_act, Change_rect *rectptr, int pos);
 int video_out_data_intscaled(void *vptr, Kimage *kimage_ptr, int out_width_act, Change_rect *rectptr);
 int video_out_data_scaled(void *vptr, Kimage *kimage_ptr, int out_width_act, Change_rect *rectptr);
-word32 video_scale_calc_frac(int pos, int out_max, word32 frac_inc, word32 frac_inc_inv);
-void video_update_scale(Kimage *kimage_ptr, int out_width, int out_height);
+word32 video_scale_calc_frac(int pos, word32 max, word32 frac_inc, word32 frac_inc_inv);
+void video_update_scale(Kimage *kimage_ptr, int out_width, int out_height, int must_update);
 int video_scale_mouse_x(Kimage *kimage_ptr, int raw_x, int x_width);
 int video_scale_mouse_y(Kimage *kimage_ptr, int raw_y, int y_height);
 int video_unscale_mouse_x(Kimage *kimage_ptr, int a2_x, int x_width);

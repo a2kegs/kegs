@@ -1,4 +1,4 @@
-const char rcsid_sound_c[] = "@(#)$KmKId: sound.c,v 1.152 2023-06-13 16:54:31+00 kentd Exp $";
+const char rcsid_sound_c[] = "@(#)$KmKId: sound.c,v 1.153 2023-06-17 20:46:55+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -406,7 +406,7 @@ sound_play_c030(dword64 dfcyc, dword64 dsamp, int *outptr_start, int num_samps)
 #endif
 		g_c030_val = c030_val;
 		if(c030_val == 0) {
-			printf("Speaker at rest\n");
+			//printf("Speaker at rest\n");
 		}
 
 		return 1;

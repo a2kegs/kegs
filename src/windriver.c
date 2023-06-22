@@ -1,4 +1,4 @@
-const char rcsid_windriver_c[] = "@(#)$KmKId: windriver.c,v 1.21 2023-05-19 14:01:24+00 kentd Exp $";
+const char rcsid_windriver_c[] = "@(#)$KmKId: windriver.c,v 1.24 2023-06-21 21:54:56+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -393,15 +393,15 @@ win_event_size(HWND hwnd, WPARAM wParam, LPARAM lParam)
 	// printf("WM_SIZE: %04x %08x\n", (word32)wParam, (word32)lParam);
 	width = lParam & 0xffff;
 	height = (lParam >> 16) & 0xffff;
-	video_update_scale(win_info_ptr->kimage_ptr, width, height);
+	video_update_scale(win_info_ptr->kimage_ptr, width, height, 0);
+#if 0
 	printf("Frac width: %f\n",
 		win_info_ptr->kimage_ptr->scale_width_a2_to_x / 65536.0);
-#if 0
-	// The following try to do "live updating" of the resize, but it's
-	//  just a stuttering mess.  Disabled for now
+#endif
+
+	// The following try to do "live updating" of the resize
 	win_info_ptr->kimage_ptr->x_refresh_needed = 1;
 	x_update_display(win_info_ptr);
-#endif
 }
 
 void
@@ -757,9 +757,11 @@ win_create_window(Window_info *win_info_ptr)
 		height + extra_height, NULL, NULL, GetModuleHandle(NULL), NULL);
 	win_info_ptr->win_hwnd = win_hwnd;
 	win_info_ptr->active = 0;
+	video_set_max_width_height(kimage_ptr, g_win_max_width,
+							g_win_max_height);
 	video_set_active(kimage_ptr, 1);
 	video_update_scale(kimage_ptr, win_info_ptr->width,
-							win_info_ptr->height);
+						win_info_ptr->height, 1);
 
 	printf("win_hwnd = %p, height = %d\n", win_hwnd, height);
 	GetWindowRect(win_hwnd, &rect);
@@ -844,6 +846,7 @@ win_resize_window(Window_info *win_info_ptr)
 		x_width + win_info_ptr->extra_width,
 		x_height + win_info_ptr->extra_height, TRUE);
 	// printf("MoveWindow ret:%d\n", ret);
+	win_info_ptr->width = x_width;
 	win_info_ptr->height = x_height;
 }
 
@@ -853,13 +856,9 @@ x_update_display(Window_info *win_info_ptr)
 	Change_rect rect;
 	void	*bitm_old;
 	//POINT	point;
-	int	valid, a2_active, x_active, x_height;
+	int	valid, a2_active, x_active;
 	int	i;
 
-	x_height = video_get_x_height(win_info_ptr->kimage_ptr);
-	if(x_height != win_info_ptr->height) {
-		win_resize_window(win_info_ptr);
-	}
 	a2_active = video_get_active(win_info_ptr->kimage_ptr);
 	x_active = win_info_ptr->active;
 
@@ -881,6 +880,11 @@ x_update_display(Window_info *win_info_ptr)
 	}
 	if(x_active == 0) {
 		return;
+	}
+
+	if(video_change_aspect_needed(win_info_ptr->kimage_ptr,
+				win_info_ptr->width, win_info_ptr->height)) {
+		win_resize_window(win_info_ptr);
 	}
 	for(i = 0; i < MAX_CHANGE_RECTS; i++) {
 		valid = video_out_data(win_info_ptr->data_ptr,

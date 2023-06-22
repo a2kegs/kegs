@@ -1,4 +1,4 @@
-// $KmKId: AppDelegate.swift,v 1.28 2023-05-04 19:32:06+00 kentd Exp $
+// $KmKId: AppDelegate.swift,v 1.29 2023-06-16 19:33:11+00 kentd Exp $
 
 //	Copyright 2019-2023 by Kent Dickey
 //	This code is covered by the GNU GPL v3
@@ -67,7 +67,8 @@ class Window_info {
 		window.contentAspectRatio = NSSize(width: width, height: height)
 
 		video_set_active(kimage_ptr, Int32(1))
-		video_update_scale(kimage_ptr, Int32(width), Int32(height))
+		video_update_scale(kimage_ptr, Int32(width), Int32(height),
+								Int32(1))
 
 		x_win = window
 		mac_view = view

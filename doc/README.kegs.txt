@@ -1,5 +1,5 @@
 
-KEGS: Kent's Emulated GS version 1.27
+KEGS: Kent's Emulated GS version 1.28
 http://kegs.sourceforge.net/
 
 What is this?
@@ -246,7 +246,7 @@ F2:	Alias of Option
 F3:	Alias of ESC for OS/2 compatibility.
 F4:	Configuration Panel
 F5:	Toggle status lines on/off
-F6:	Toggle through the 4 speeds: Unlimited, 1MHz, 2.8MHz, 8.0MHz
+F6:	Toggle through the 4 speeds: Unlimited, 1MHz, 2.8MHz, 8.0MHz (ZipGS)
 Shift-F6: Enter KEGS debugger
 F7:	Toggle debugger window
 Shift-F7: Toggle fast_disk_emul on/off
@@ -493,7 +493,9 @@ Apple IIgs Control Panel:
 ------------------------
 
 You can get to the Apple IIgs control panel (unless some application
-has locked it out) using Ctrl-Command-ESC.
+has locked it out) using Ctrl-Command-ESC.  On Windows, Command and ESC can
+be tricky to enter (Windows grabs them for itself), so Ctrl-F1-F3 is the
+same as Ctrl-Command-ESC.
 
 Important things you can do here: Change the speed to 1MHz (for Apple II
 compatibility) (or just F6 to change the speed to 1MHz), change the boot
@@ -518,7 +520,12 @@ KEGS has limited support for the Apple Video Overlay Card (VOC).  The VOC
 supports a special 640x400 interlaced SHR video mode which is what KEGS also
 supports.  To turn on this mode, you need to do:
 
-Enable VOC (Press F4, select "Enable VOC = Enabled")
+Enable VOC (Press F4, select "Video setting"", then select
+"Enable VOC = Enabled")
+
+The following write done manually will enable the VOC:
+
+CALL -151
 c029:c1		# Turn on SHR
 c0b1:39		# Set bits [5:4]=11 to enable Interlaced mode
 c0b5:80		# Set bit 7 to enable Interlace mode
@@ -577,10 +584,24 @@ Woz image, KEGS automatically acts as if fast_disk_emul is disabled.
 KEGS Timing:
 -----------
 
-KEGS supports running at four speeds:  1MHz, 2.8MHz, 8.0MHz, and Unlimited.
-Pressing the the F6 key cycles between these modes.  The 1MHz
-and 2.8MHz speeds force KEGS to run at exactly those speeds, providing
-accurate reproduction of a real Apple IIgs.
+KEGS supports running at four speeds:  1MHz, 2.8MHz, 8.0MHz (ZipGS), and
+Unlimited.  Pressing the the F6 key cycles between these modes.  The
+1MHz and 2.8MHz speeds force KEGS to run at exactly those speeds,
+providing accurate reproduction of a real Apple IIgs.
+
+On regular host machines now, sitting at the BASIC prompt can make KEGS
+say the speed is 4000MHz or higher.  This is because the emulated code
+is reading the keyboard (or other softswitch) more often than 500,000
+times per second, and due to how slow accesses work, that's the most
+that can be done in one second, and so KEGS has lots of spare time, and
+makes the Eff MHz or Sim MHz be too high.  You have to run a BASIC
+program or do something not checking for keypresses so often to see what
+the true emulation speed is, so something like:
+
+10 A = SIN(A) + 1
+20 GOTO 10
+
+is a fine test.
 
 KEGS will always run at 1MHz at least.  If it is unable to keep up,
 it will extend the emulated time to maintain the illusion of running
@@ -589,7 +610,7 @@ instead of the usual 60.  This happens rarely.
 
 (There's a Mac OS X bug in recent releases after 10.13 which can cause KEGS
 to draw VERY slowly to the screen, such that KEGS falls below 1MHz.  On your
-Mac, go to the Apple Menu->System Prefernces, then select Displays.  Select
+Mac, go to the Apple Menu->System Settings, then select Displays.  Select
 the "Color" tab.  Change to a different setting, usually one with "RGB" in
 the name.  See if KEGS now easily exceeds 1MHz).
 
@@ -605,19 +626,24 @@ through the control panel.  But, 3.5" accesses will "speed up" to 2.8MHz
 to enable that code to operate correctly while the 3.5" disk is being
 accessed.
 
-If you force KEGS to run at 2.8MHz, KEGS tries to run at exactly 2.8MHz.  But
-like a real unaccelerated Apple IIgs, if you set the control panel to "slow",
-it will really be running at 1MHz.  Accesses to 5.25" disk automatically slow
-down to 1MHz, when running the IWM in accurate mode (F7) or when accessing a
-Woz image.  Many Apple IIgs demos must be run at 2.8MHz.  The built-in
-selftests (cmd-option-ctrl-Reset) must run at 2.8MHz.  Many Apple IIgs action
-games are more playable at 2.8MHz.
+If you force KEGS to run at 2.8MHz, KEGS tries to run at exactly 2.8MHz.
+But like a real unaccelerated Apple IIgs, if you set the control panel
+to "slow", it will really be running at 1MHz.  Accesses to 5.25" disk
+automatically slow down to 1MHz, when running the IWM in accurate mode
+(F7) or when accessing a Woz image.  Many Apple IIgs demos must be run
+at 2.8MHz.  The built-in selftests (cmd-option-ctrl-Reset) must run at
+2.8MHz.  Many Apple IIgs action games are more playable at 2.8MHz.
 
-The 8.0MHz setting means follow the ZipGS-selected speed, but don't go faster
-than 8.0MHz.  If your host computer cannot keep up, then the emulated second
-will be extended, and KEGS will have choppy audio and video.  You can use the
-ZipGS control panel, or ZIPPY.GS on the sample disk image to set the emulated
-ZipGS speed to anything from 1MHz to 8MHz in .5MHz increments.
+The 8.0MHz setting means follow the ZipGS-selected speed, but don't go
+faster than 8.0MHz.  This 8.0MHz value can be changed to 8MHz, 16MHz,
+32MHz, 64MHz, or 128MHz at the Configuration settings (Press F4), and
+change "ZipGS Speed = ".  If your host computer cannot keep up, then the
+emulated second will be extended, and KEGS will have choppy audio and
+video.  You can use the ZipGS control panel, or ZIPPY.GS on the sample
+disk image to set the emulated ZipGS speed to any 1/16th increment of
+the selected speed (so if you pick a ZipGS speed of 64MHz on the KEGS
+Configuration screen (F4), you can set the emulation speed to any value
+from 4-64MHz in 4MHz increments)
 
 The Unlimited setting means run as fast as possible, whatever speed that
 is (but always above 1MHz).  Eff MHz gives you the current Apple IIgs

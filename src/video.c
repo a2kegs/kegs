@@ -1,4 +1,4 @@
-const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.201 2023-05-19 13:52:30+00 kentd Exp $";
+const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.207 2023-06-16 19:30:50+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -407,6 +407,13 @@ video_set_active(Kimage *kimage_ptr, int active)
 }
 
 void
+video_set_max_width_height(Kimage *kimage_ptr, int width, int height)
+{
+	kimage_ptr->x_max_width = width;
+	kimage_ptr->x_max_height = height;
+}
+
+void
 video_init(int mdepth)
 {
 	word32	col[4];
@@ -490,7 +497,7 @@ video_init(int mdepth)
 	}
 
 	video_init_kimage(&g_mainwin_kimage, X_A2_WINDOW_WIDTH,
-					X_A2_WINDOW_HEIGHT + 7*16 + 16);
+				X_A2_WINDOW_HEIGHT + MAX_STATUS_LINES*16 + 2);
 
 	video_init_kimage(&g_debugwin_kimage, 80*8 + 8 + 8, 25*16 + 8 + 8);
 
@@ -523,7 +530,10 @@ video_init_kimage(Kimage *kimage_ptr, int width, int height)
 	kimage_ptr->x_width = width;
 	kimage_ptr->x_height = height;
 	kimage_ptr->x_refresh_needed = 1;
+	kimage_ptr->x_max_width = width;
+	kimage_ptr->x_max_height = height;
 	kimage_ptr->active = 0;
+	kimage_ptr->vbl_of_last_resize = 0;
 	kimage_ptr->c025_val = 0;
 
 	kimage_ptr->scale_width_to_a2 = 0x10000;
@@ -2141,6 +2151,28 @@ video_get_x_height(Kimage *kimage_ptr)
 	return kimage_ptr->x_height;
 }
 
+int
+video_change_aspect_needed(Kimage *kimage_ptr, int x_width, int x_height)
+{
+	// Return 1 if the passed in height, width do not match the kimage
+	//  aspect-corrected version, and at least 2 VBL periods have passed
+
+	if((kimage_ptr->vbl_of_last_resize + 6) > g_vbl_count) {
+		return 0;
+	}
+	if((kimage_ptr->x_height != x_height) ||
+					(kimage_ptr->x_width != x_width)) {
+#if 0
+		printf("change_aspect_needed, vbl:%d kimage width:%d height:%d "
+			"but x width:%d height:%d\n", g_vbl_count,
+			kimage_ptr->x_width, kimage_ptr->x_height,
+			x_width, x_height);
+#endif
+		return 1;
+	}
+	return 0;
+}
+
 void
 video_update_status_enable(Kimage *kimage_ptr)
 {
@@ -2153,12 +2185,16 @@ video_update_status_enable(Kimage *kimage_ptr)
 		a2_height = kimage_ptr->a2_height_full;
 	}
 	kimage_ptr->a2_height = a2_height;
-	kimage_ptr->x_height = (a2_height * kimage_ptr->scale_width_a2_to_x) >>
-									16;
+	height = (a2_height * kimage_ptr->scale_width_a2_to_x) >> 16;
+	if(height > kimage_ptr->x_max_height) {
+		height = kimage_ptr->x_max_height;
+	}
+	kimage_ptr->x_height = height;
 #if 0
 	printf("new a2_height:%d, x_height:%d\n", kimage_ptr->a2_height,
 							kimage_ptr->x_height);
 #endif
+	video_update_scale(kimage_ptr, kimage_ptr->x_width, height, 0);
 }
 
 // video_out_query: return 0 if no screen drawing at all is needed.
@@ -2318,15 +2354,14 @@ video_out_data_scaled(void *vptr, Kimage *kimage_ptr, int out_width_act,
 					Change_rect *rectptr)
 {
 	word32	*out_wptr, *wptr;
-	word32	comp0a, comp0b, comp1a, comp1b, val0a, val0b, val1a, val1b;
-	word32	scale, scale_y, comp0, comp1, comp, new_val, pos_scale;
-	word32	alpha_mask;
+	dword64	dval0a, dval0b, dval1a, dval1b, dscale, dscale_y, dval;
+	word32	new_val, pos_scale, alpha_mask;
 	int	a2_width_full, eff_y, src_y, x, y, new_x, out_x, out_y;
 	int	out_width, out_height, max_x, max_y, out_max_x, out_max_y, pos;
-	int	i, j, shift;
+	int	i, j;
 
-	if((kimage_ptr->scale_width_a2_to_x >= 0x30000) ||
-			(kimage_ptr->scale_height_a2_to_x >= 0x30000)) {
+	if((kimage_ptr->scale_width_a2_to_x >= 0x34000) ||
+			(kimage_ptr->scale_height_a2_to_x >= 0x34000)) {
 		return video_out_data_intscaled(vptr, kimage_ptr,
 						out_width_act, rectptr);
 	}
@@ -2362,41 +2397,43 @@ video_out_data_scaled(void *vptr, Kimage *kimage_ptr, int out_width_act,
 		eff_y = out_y + i;
 		pos_scale = kimage_ptr->scale_height[eff_y];
 		src_y = pos_scale >> 16;
-		scale_y = pos_scale & 0xffff;
+		dscale_y = (pos_scale & 0xffff) >> 8;
 		wptr = kimage_ptr->wptr + (src_y * a2_width_full);
 		out_wptr = ((word32 *)vptr) + (eff_y * out_width_act) + out_x;
 		for(j = 0; j < out_width; j++) {
 			new_x = j + out_x;
 			pos_scale = kimage_ptr->scale_width[new_x];
 			pos = pos_scale >> 16;
-			scale = pos_scale & 0xffff;
-			val0a = wptr[pos];
-			val0b = wptr[pos + 1];
-			val1a = wptr[pos + a2_width_full];
-			val1b = wptr[pos + 1 + a2_width_full];
-			new_val = 0;
-			for(shift = 0; shift < 32; shift += 8) {
-				comp0a = (val0a >> shift) & 0xff;
-				comp0b = (val0b >> shift) & 0xff;
-				comp1a = (val1a >> shift) & 0xff;
-				comp1b = (val1b >> shift) & 0xff;
-				comp0 = ((65536 - scale) * comp0a) +
-							(scale * comp0b);
-				comp1 = ((65536 - scale) * comp1a) +
-							(scale * comp1b);
-				comp0 = comp0 >> 16;
-				comp1 = comp1 >> 16;
-				comp = ((65536 - scale_y) * comp0) +
-							(scale_y * comp1);
-				comp = comp >> 16;
-				new_val |= (comp << shift);
-			}
+			dscale = (pos_scale & 0xffff) >> 8;
+			dval0a = wptr[pos];
+			dval0a = (dval0a & 0x00ff00ffULL) |
+					((dval0a & 0xff00ff00ULL) << 24);
+			dval0b = wptr[pos + 1];
+			dval0b = (dval0b & 0x00ff00ffULL) |
+					((dval0b & 0xff00ff00ULL) << 24);
+			dval1a = wptr[pos + a2_width_full];
+			dval1a = (dval1a & 0x00ff00ffULL) |
+					((dval1a & 0xff00ff00ULL) << 24);
+			dval1b = wptr[pos + 1 + a2_width_full];
+			dval1b = (dval1b & 0x00ff00ffULL) |
+					((dval1b & 0xff00ff00ULL) << 24);
+			dval0a = ((0x100 - dscale) * dval0a) +
+					(dscale * dval0b);
+			dval1a = ((0x100 - dscale) * dval1a) +
+					(dscale * dval1b);
+			dval0a = (dval0a >> 8) & 0x00ff00ff00ff00ffULL;
+			dval1a = (dval1a >> 8) & 0x00ff00ff00ff00ffULL;
+			dval = ((0x100 - dscale_y) * dval0a) +
+					(dscale_y * dval1a);
+			new_val = ((dval >> 8) & 0x00ff00ffULL) |
+				((dval >> 32) & 0xff00ff00ULL);
 			*out_wptr++ = new_val | alpha_mask;
 #if 0
-			if((pos >= 640+32+30) && (eff_y == 100)) {
-				printf("x:%d pos:%d %08x.  %08x,%08x pos_sc:"
-					"%08x\n", new_x, pos, new_val, val0a,
-					val0b, pos_scale);
+			if((pos == 300) && (eff_y == 100)) {
+				printf("x:%d pos:%d %08x.  %016llx,%016llx "
+					"pos_sc:%08x, %08x\n", new_x, pos,
+					new_val, dval0a, dval0b, pos_scale,
+					wptr[pos]);
 			}
 #endif
 		}
@@ -2424,15 +2461,13 @@ video_out_data_scaled(void *vptr, Kimage *kimage_ptr, int out_width_act,
 }
 
 word32
-video_scale_calc_frac(int pos, int out_max, word32 frac_inc,
-							word32 frac_inc_inv)
+video_scale_calc_frac(int pos, word32 max, word32 frac_inc, word32 frac_inc_inv)
 {
 	word32	frac, frac_to_next, new_frac;
 
 	frac = pos * frac_inc;
-	if(pos >= (out_max - 1)) {
-		return (g_mainwin_kimage.a2_width - 1) << 16;
-							// Clear frac bits
+	if(frac >= max) {
+		return max;			// Clear frac bits
 	}
 	if(g_video_scale_algorithm == 2) {
 		return frac & -65536;			// nearest neighbor
@@ -2459,34 +2494,60 @@ video_scale_calc_frac(int pos, int out_max, word32 frac_inc,
 }
 
 void
-video_update_scale(Kimage *kimage_ptr, int out_width, int out_height)
+video_update_scale(Kimage *kimage_ptr, int out_width, int out_height,
+							int must_update)
 {
-	word32	frac_inc, frac_inc_inv, new_frac;
+	word32	frac_inc, frac_inc_inv, new_frac, max;
 	int	a2_width, a2_height, exp_width, exp_height;
 	int	i;
 
+	if(out_width > kimage_ptr->x_max_width) {
+		out_width = kimage_ptr->x_max_width;
+	}
 	if(out_width > MAX_SCALE_SIZE) {
 		out_width = MAX_SCALE_SIZE;
+	}
+	if(out_height > kimage_ptr->x_max_height) {
+		out_height = kimage_ptr->x_max_height;
 	}
 	if(out_height > MAX_SCALE_SIZE) {
 		out_height = MAX_SCALE_SIZE;
 	}
 	a2_width = kimage_ptr->a2_width;
 	a2_height = kimage_ptr->a2_height;
+	kimage_ptr->vbl_of_last_resize = g_vbl_count;
 
 	// Handle aspect ratio.  Calculate height/width based on the other's
 	//  aspect ratio, and pick the smaller value
 	exp_width = (a2_width * out_height) / a2_height;
 	exp_height = (a2_height * out_width) / a2_width;
+
+	if(exp_width < a2_width) {
+		exp_width = a2_width;
+	}
+	if(exp_height < a2_height) {
+		exp_height = a2_height;
+	}
 	if(exp_width < out_width) {
-		out_width = exp_width;
+		// Allow off-by-one to be OK, so window doesn't keep resizing
+		if((exp_width + 1) != out_width) {
+			out_width = exp_width;
+		}
 	}
 	if(exp_height < out_height) {
-		out_height = exp_height;
+		if((exp_height + 1) != out_height) {
+			out_height = exp_height;
+		}
+	}
+	if(out_width <= 0) {
+		out_width = 1;
+	}
+	if(out_height <= 0) {
+		out_height = 1;
 	}
 
 	// See if anything changed.  If it's unchanged, don't do anything
-	if((kimage_ptr->x_width == out_width) &&
+	if((kimage_ptr->x_width == out_width) && !must_update &&
 			(kimage_ptr->x_height == out_height)) {
 		return;
 	}
@@ -2504,8 +2565,9 @@ video_update_scale(Kimage *kimage_ptr, int out_width, int out_height)
 		kimage_ptr->scale_width_to_a2, kimage_ptr->scale_width_a2_to_x,
 		(kimage_ptr == &g_debugwin_kimage));
 #endif
+	max = (a2_width - 1) << 16;
 	for(i = 0; i < out_width + 1; i++) {
-		new_frac = video_scale_calc_frac(i, out_width, frac_inc,
+		new_frac = video_scale_calc_frac(i, max, frac_inc,
 								frac_inc_inv);
 		kimage_ptr->scale_width[i] = new_frac;
 	}
@@ -2515,12 +2577,13 @@ video_update_scale(Kimage *kimage_ptr, int out_width, int out_height)
 	frac_inc_inv = (out_height * 65536UL) / a2_height;
 	kimage_ptr->scale_height_a2_to_x = frac_inc_inv;
 #if 0
-	printf("scale_height_to_a2: %08x, a2_to_x:%08x\n",
+	printf("scale_height_to_a2: %08x, a2_to_x:%08x. w:%d h:%d\n",
 		kimage_ptr->scale_height_to_a2,
-		kimage_ptr->scale_height_a2_to_x);
+		kimage_ptr->scale_height_a2_to_x, out_width, out_height);
 #endif
+	max = (a2_height - 1) << 16;
 	for(i = 0; i < out_height + 1; i++) {
-		new_frac = video_scale_calc_frac(i, out_height, frac_inc,
+		new_frac = video_scale_calc_frac(i, max, frac_inc,
 								frac_inc_inv);
 		kimage_ptr->scale_height[i] = new_frac;
 	}

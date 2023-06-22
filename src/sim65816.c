@@ -1,4 +1,4 @@
-const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.461 2023-06-13 17:06:13+00 kentd Exp $";
+const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.464 2023-06-17 20:43:04+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -88,7 +88,7 @@ int	g_serial_out_masking = 0;
 int	g_serial_modem[2] = { 0, 1 };
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "1.27";
+const char g_kegs_version_str[] = "1.28";
 
 dword64	g_last_vbl_dfcyc = 0;
 dword64	g_cur_dfcyc = 1;
@@ -150,10 +150,7 @@ int	g_use_shmem = 1;
 
 extern word32 g_cycs_in_40col;
 extern word32 g_cycs_in_xredraw;
-extern word32 g_cycs_in_check_input;
 extern word32 g_cycs_in_refresh_line;
-extern word32 g_cycs_in_refresh_ximage;
-extern word32 g_cycs_in_run_16ms;
 extern word32 g_cycs_outside_run_16ms;
 extern word32 g_refresh_bytes_xfer;
 
@@ -1036,6 +1033,7 @@ double	g_dtime_in_run_16ms = 0;
 double	g_dtime_outside_run_16ms = 0;
 double	g_dtime_end_16ms = 0;
 int	g_limit_speed = 0;
+int	g_zip_speed_mhz = 8;		// 8MHz default
 double	sim_time[60];
 double	g_sim_sum = 0.0;
 
@@ -1069,7 +1067,7 @@ setup_zip_speeds()
 
 	mult = 16 - ((g_zipgs_reg_c05a >> 4) & 0xf);
 		// 16 = full speed, 1 = 1/16th speed
-	fmhz = (8.0 * mult) / 16.0;
+	fmhz = (g_zip_speed_mhz * mult) / 16.0;
 #if 0
 	if(mult == 16) {
 		/* increase full speed by 19% to make zipgs freq measuring */
@@ -1440,13 +1438,13 @@ update_60hz(dword64 dfcyc, double dtime_now)
 	char	status_buf[1024];
 	char	sim_mhz_buf[128];
 	char	total_mhz_buf[128];
+	char	sp_buf[128];
 	char	*sim_mhz_ptr, *total_mhz_ptr, *code_str1, *code_str2, *sp_str;
 	dword64	planned_dcyc;
 	double	eff_pmhz, predicted_pmhz, recip_predicted_pmhz;
 	double	dtime_this_vbl_sim, dtime_diff_1sec, dratio, dtime_diff;
 	double	dtime_till_expected, dtime_this_vbl, dadjcycs_this_vbl;
-	double	dadj_cycles_1sec, dtmp2, dtmp3, dtmp4;
-	double	dnatcycs_1sec;
+	double	dadj_cycles_1sec, dnatcycs_1sec;
 	int	tmp, doit_3_persec, cur_vbl_index, prev_vbl_index;
 
 	/* NOTE: this event is defined to occur before line 0 */
@@ -1497,6 +1495,9 @@ update_60hz(dword64 dfcyc, double dtime_now)
 		} else {
 			g_sim_mhz = (dadj_cycles_1sec / g_sim_sum) /
 							(1000.0*1000.0);
+			if(g_sim_mhz > 8000.0) {
+				g_sim_mhz = 8000.0;
+			}
 			snprintf(sim_mhz_buf, sizeof(sim_mhz_buf), "%6.2f",
 								g_sim_mhz);
 			sim_mhz_ptr = sim_mhz_buf;
@@ -1516,8 +1517,13 @@ update_60hz(dword64 dfcyc, double dtime_now)
 		case 3:	sp_str = "8.0Mhz"; break;
 		default: sp_str = "Unlimited"; break;
 		}
+		if(g_limit_speed == 3) {		// ZipGS
+			snprintf(sp_buf, sizeof(sp_buf), "%1.1fMHz",
+							g_zip_pmhz);
+			sp_str = sp_buf;
+		}
 
-		snprintf(status_buf, sizeof(status_buf), "dfcyc:%9.1f sim "
+		snprintf(status_buf, sizeof(status_buf), "dfcyc:%7.1f sim "
 			"MHz:%s Eff MHz:%s, sec:%1.3f vol:%02x Limit:%s",
 			(double)(dfcyc >> 20)/65536.0, sim_mhz_ptr,
 			total_mhz_ptr, dtime_diff_1sec, g_doc_vol, sp_str);
@@ -1541,27 +1547,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 		}
 		dnatcycs_1sec = dnatcycs_1sec / 100.0; /* eff mult by 100 */
 
-		dtmp2 = (double)(g_cycs_in_check_input) / dnatcycs_1sec;
-		//dtmp3 = (double)(g_cycs_in_refresh_line) / dnatcycs_1sec;
-		dtmp3 = (double)(g_cycs_in_run_16ms) / dnatcycs_1sec;
-		dtmp4 = ((double)g_video_pixel_dcount) / VBL_RATE;
-		snprintf(status_buf, sizeof(status_buf), "xfer:%08x, %5.1f "
-			"ref_amt:%d ch_in:%4.1f%% ref_l:%4.1f%% pix/fr:%6.0f",
-			g_refresh_bytes_xfer, g_dnatcycs_1sec/(1000.0*1000.0),
-			g_line_ref_amt, dtmp2, dtmp3, dtmp4);
-		video_update_status_line(1, status_buf);
 		g_video_pixel_dcount = 0;
-
-		snprintf(status_buf, sizeof(status_buf), "Ints:%3d I/O:%4dK "
-			"BRK:%3d COP:%2d Eng:%3d act:%3d rev:%3d esi:%3d "
-			"edi:%3d", g_num_irq, g_io_amt>>10, g_num_brk,
-			g_num_cop, g_num_enter_engine, g_engine_action,
-			g_engine_recalc_event, g_engine_scan_int,
-			g_engine_doc_int);
-		video_update_status_line(2, status_buf);
-
-		snprintf(status_buf, sizeof(status_buf), " ");
-		video_update_status_line(3, status_buf);
 
 		code_str1 = "";
 		code_str2 = "";
@@ -1577,14 +1563,14 @@ update_60hz(dword64 dfcyc, double dtime_now)
 			"out_16ms:%8.6f, in_16ms:%8.6f, snd_pl:%d",
 			g_dtime_in_sleep, g_dtime_outside_run_16ms,
 			g_dtime_in_run_16ms, g_num_snd_plays);
-		video_update_status_line(4, status_buf);
+		video_update_status_line(1, status_buf);
 
-		draw_iwm_status(5, status_buf);
+		draw_iwm_status(2, status_buf);
 
 		snprintf(status_buf, sizeof(status_buf), "KEGS v%-6s       "
 			"Press F4 for Config Menu    %s %s",
 			g_kegs_version_str, code_str1, code_str2);
-		video_update_status_line(6, status_buf);
+		video_update_status_line(3, status_buf);
 
 		g_status_refresh_needed = 1;
 
@@ -1600,9 +1586,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 
 		g_cycs_in_40col = 0;
 		g_cycs_in_xredraw = 0;
-		g_cycs_in_check_input = 0;
 		g_cycs_in_refresh_line = 0;
-		g_cycs_in_refresh_ximage = 0;
 		g_dnatcycs_1sec = 0.0;
 		g_dtime_outside_run_16ms = 0.0;
 		g_dtime_in_run_16ms = 0.0;

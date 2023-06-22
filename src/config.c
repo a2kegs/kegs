@@ -1,4 +1,4 @@
-const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.141 2023-06-13 14:48:11+00 kentd Exp $";
+const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.142 2023-06-17 20:42:40+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -42,6 +42,7 @@ extern word32 g_adb_repeat_vbl;
 extern int g_adb_swap_command_option;
 
 extern int g_limit_speed;
+extern int g_zip_speed_mhz;
 extern int g_force_depth;
 extern int g_raw_serial;
 extern int g_serial_out_masking;
@@ -302,6 +303,8 @@ Cfg_menu g_cfg_main_menu[] = {
 		KNMP(g_config_kegs_auto_update), CFGTYPE_INT },
 { "Speed,0,Unlimited,1,1.0MHz,2,2.8MHz,3,8.0MHz (Zip)",
 		KNMP(g_limit_speed), CFGTYPE_INT },
+{ "ZipGS Speed,8,8MHz,16,16MHz,32,32MHz,64,64MHz,128,128MHz",
+		KNMP(g_zip_speed_mhz), CFGTYPE_INT },
 { "Expansion Mem Size,0,0MB,0x100000,1MB,0x200000,2MB,0x300000,3MB,"
 	"0x400000,4MB,0x600000,6MB,0x800000,8MB,0xa00000,10MB,0xc00000,12MB,"
 	"0xe00000,14MB", KNMP(g_mem_size_exp), CFGTYPE_INT },

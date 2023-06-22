@@ -1,4 +1,4 @@
-// $KmKId: defs_instr.h,v 1.65 2023-06-02 19:58:19+00 kentd Exp $
+// $KmKId: defs_instr.h,v 1.66 2023-06-21 21:09:42+00 kentd Exp $
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -277,10 +277,10 @@
 	INC_KPC_3;						\
 	tmp1 = (dbank << 16) + arg;				\
 	arg = tmp1 + index_reg;					\
-	tmp1 = (tmp1 ^ arg) & 0xff00;				\
-	if((psr & 0x10) && (tmp1 | is_write)) {			\
-		GET_MEMORY8(arg, tmp2);				\
-	} else if(((psr & 0x10) == 0) | tmp1 | is_write) {	\
+	tmp1 = (tmp1 & 0xffff00) + (arg & 0xff);		\
+	if((psr & 0x10) && ((tmp1 != arg) | is_write)) {	\
+		GET_MEMORY8(tmp1, tmp2);			\
+	} else if(((psr & 0x10) == 0) | (tmp1 != arg) | is_write) {	\
 		CYCLES_PLUS_1;					\
 	}
 

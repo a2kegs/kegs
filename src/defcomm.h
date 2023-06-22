@@ -1,5 +1,5 @@
 #ifdef INCLUDE_RCSID_C
-const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.107 2023-05-04 19:35:29+00 kentd Exp $";
+const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.108 2023-06-14 04:26:36+00 kentd Exp $";
 #endif
 
 /************************************************************************/
@@ -124,7 +124,7 @@ const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.107 2023-05-04 19:35:
 #define X_A2_WINDOW_HEIGHT	(A2_WINDOW_HEIGHT + BASE_MARGIN_TOP + \
 							BASE_MARGIN_BOTTOM)
 
-#define MAX_STATUS_LINES	7
+#define MAX_STATUS_LINES	4
 #define STATUS_LINE_LENGTH	88
 
 #define BASE_WINDOW_WIDTH	(X_A2_WINDOW_WIDTH)

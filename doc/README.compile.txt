@@ -1,4 +1,4 @@
-# $Id: README.compile.txt,v 1.25 2023/05/21 20:11:42 kentd Exp $
+# $Id: README.compile.txt,v 1.26 2023/06/14 02:56:10 kentd Exp $
 
 General build instructions:
 --------------------------
@@ -135,7 +135,7 @@ the KEGS source:
 cd src
 start kegswin.vcxproj
 
-You may also be able to just double-click the kegsin.vcproj file.
+You may also be able to just double-click the kegswin.vcproj file.
 
 Press 'F7' to generate an executable in x64\Release\kegswin.exe.
 

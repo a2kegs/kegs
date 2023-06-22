@@ -1,4 +1,4 @@
-// $KmKId: MainView.swift,v 1.38 2023-05-22 15:51:09+00 kentd Exp $
+// $KmKId: MainView.swift,v 1.39 2023-06-16 19:33:37+00 kentd Exp $
 
 //	Copyright 2019-2023 by Kent Dickey
 //	This code is covered by the GNU GPL v3
@@ -289,7 +289,8 @@ class MainView: NSView {
 						count: height * width)
 		rawData = bitmapData.bindMemory(to: UInt32.self,
 						capacity: height * width)
-		video_update_scale(kimage_ptr, Int32(width), Int32(height))
+		video_update_scale(kimage_ptr, Int32(width), Int32(height),
+								Int32(1))
 		if(Context_draw) {
 			video_set_alpha_mask(UInt32(0xff000000))
 			// Set video.c alpha mask, since 0 means transparent
@@ -318,7 +319,7 @@ class MainView: NSView {
 					height:Int32(context.height));
 				video_update_scale(kimage_ptr,
 					Int32(context.width),
-					Int32(context.height))
+					Int32(context.height), Int32(0))
 				video_out_data_scaled(data, kimage_ptr,
 					Int32(context.bytesPerRow/4), &rect);
 				video_out_done(kimage_ptr);

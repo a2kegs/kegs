@@ -1,4 +1,4 @@
-const char rcsid_debugger_c[] = "@(#)$KmKId: debugger.c,v 1.57 2023-05-19 13:52:54+00 kentd Exp $";
+const char rcsid_debugger_c[] = "@(#)$KmKId: debugger.c,v 1.58 2023-06-21 21:15:44+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -764,7 +764,6 @@ do_debug_cmd(const char *in_str)
 			do_debug_list();
 			break;
 		case 'Z':
-			show_scc_log();
 			show_scc_state();
 			break;
 		case 'S':

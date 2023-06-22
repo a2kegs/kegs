@@ -10,7 +10,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_protos_x_h[] = "@(#)$KmKId: protos_xdriver.h,v 1.39 2023-05-04 19:35:29+00 kentd Exp $";
+const char rcsid_protos_x_h[] = "@(#)$KmKId: protos_xdriver.h,v 1.40 2023-06-16 19:32:26+00 kentd Exp $";
 
 /* END_HDR */
 
@@ -28,8 +28,8 @@ void x_init_window(Window_info *win_info_ptr, Kimage *kimage_ptr, char *name_str
 void x_create_window(Window_info *win_info_ptr);
 int xhandle_shm_error(Display *display, XErrorEvent *event);
 void x_allocate_window_data(Window_info *win_info_ptr);
-void get_shm(Window_info *win_info_ptr);
-void get_ximage(Window_info *win_info_ptr);
+void get_shm(Window_info *win_info_ptr, int width, int height);
+void get_ximage(Window_info *win_info_ptr, int width, int height);
 void x_set_size_hints(Window_info *win_info_ptr);
 void x_resize_window(Window_info *win_info_ptr);
 void x_update_display(Window_info *win_info_ptr);
