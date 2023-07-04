@@ -74,6 +74,7 @@ class Window_info {
 		mac_view = view
 		mac_a2_height = height;
 		window.makeKey()
+		NSApp.activate(ignoringOtherApps: true)
 	}
 
 	func update() {
