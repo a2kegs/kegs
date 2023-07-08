@@ -157,7 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 		Press F4 to change emulator options.
 
-		Copyright 2019-2023 Kent Dickey
+		Copyright ©2019-2023 Kent Dickey
 
 		https://kegs.sourceforge.net/
 		https://github.com/a2kegs/kegs
