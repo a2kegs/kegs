@@ -106,6 +106,7 @@ class Window_info {
 			}
 		}
 	}
+
 	func mac_resize_window() {
 		let a2_height = Int(video_get_a2_height(kimage_ptr))
 		let a2_width = Int(video_get_a2_width(kimage_ptr))
@@ -145,10 +146,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		return debugwin_info
 	}
 
-	@objc func do_about(_:AnyObject) {
-		// func showAboutDialog() {
+	@objc func showAboutDialog(_:AnyObject) {
 		let alert = NSAlert()
-		alert.messageText = "About My App"
+		alert.messageText = "About Kegs"
 		let aboutText = """
 		KEGS is an Apple IIgs emulator for Mac, Linux, and Windows.
 
@@ -237,7 +237,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 			print("Installing my menu now")
 			let kegs = NSMenu(title: appname)
 			kegs.addItem(withTitle: "About \(appname)",
-				action: #selector(AppDelegate.do_about(_:)),
+				action: #selector(AppDelegate.showAboutDialog(_:)),
 				keyEquivalent: "")
 			kegs.addItem(NSMenuItem.separator())
 			let quit_item = NSMenuItem(title: "Quit \(appname)",

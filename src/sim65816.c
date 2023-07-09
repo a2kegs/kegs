@@ -88,7 +88,7 @@ int	g_serial_out_masking = 0;
 int	g_serial_modem[2] = { 0, 1 };
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "1.28";
+const char g_kegs_version_str[] = "1.29";
 
 dword64	g_last_vbl_dfcyc = 0;
 dword64	g_cur_dfcyc = 1;

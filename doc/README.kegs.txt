@@ -1,5 +1,5 @@
 
-KEGS: Kent's Emulated GS version 1.28
+KEGS: Kent's Emulated GS version 1.29
 http://kegs.sourceforge.net/
 
 What is this?
