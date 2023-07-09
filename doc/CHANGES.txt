@@ -1,4 +1,10 @@
 
+Changes in KEGS v1.29 since v1.29 (07/08/23)
+- MacOS take focus when launched
+- MacOS support retina display (this is for menus, not related to emulation)
+- MacOS update 'About' with more information on the source
+- MacOS update app bundle name and icon
+
 Changes in KEGS v1.28 since v1.27 (06/21/23)
 - Reduce status lines under the window from 7 lines of text to 4.
 - Fix Windows10 crash when KEGS was minimized (Windows set the window size to

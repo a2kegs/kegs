@@ -1,0 +1,8 @@
+# object files
+*.o
+
+# app bundle
+*.app
+
+# mac finder droppings
+.DS_Store
