@@ -1,4 +1,4 @@
-const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.208 2023-09-23 17:52:53+00 kentd Exp $";
+const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.209 2023-09-26 02:59:16+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -511,7 +511,6 @@ video_init(int mdepth)
 	g_video_filt_stat_pos = 0;
 	video_update_status_enable(&g_mainwin_kimage);
 	video_update_through_line(262);
-	debugger_init();
 
 	printf("g_mainwin_kimage created and init'ed\n");
 	fflush(stdout);

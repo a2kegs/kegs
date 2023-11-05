@@ -1,4 +1,4 @@
-const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.63 2023-09-12 19:41:17+00 kentd Exp $";
+const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.68 2023-10-30 16:51:32+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -100,8 +100,6 @@ scc_init()
 		}
 	}
 
-	scc_reset();
-
 	g_scc_init = 1;
 }
 
@@ -111,6 +109,10 @@ scc_reset()
 	Scc	*scc_ptr;
 	int	i;
 
+	if(!g_scc_init) {
+		halt_printf("scc_reset called before init\n");
+		return;
+	}
 	for(i = 0; i < 2; i++) {
 		scc_ptr = &(g_scc[i]);
 
@@ -697,7 +699,7 @@ scc_read_reg(dword64 dfcyc, int port)
 
 	scc_ptr->reg_ptr = 0;
 	scc_printf("Read c03%x, rr%d, ret: %02x\n", 8+port, regnum, ret);
-	dbg_log_info(dfcyc, regnum, ret, 0xc039 - port);
+	dbg_log_info(dfcyc, 0, ret, (regnum << 20) | (0xc039 - port));
 
 	return ret;
 }
@@ -713,8 +715,6 @@ scc_write_reg(dword64 dfcyc, int port, word32 val)
 	regnum = scc_ptr->reg_ptr & 0xf;
 	mode = scc_ptr->mode;
 
-	dbg_log_info(dfcyc, regnum, val, 0x1c039 - port);
-
 	if(mode == 0) {
 		if((val & 0xf0) == 0) {
 			/* Set reg_ptr */
@@ -726,8 +726,11 @@ scc_write_reg(dword64 dfcyc, int port, word32 val)
 		scc_ptr->reg_ptr = 0;
 		scc_ptr->mode = 0;
 	}
-
 	changed_bits = (scc_ptr->reg[regnum] ^ val) & 0xff;
+
+	dbg_log_info(dfcyc, (mode << 16) | scc_ptr->reg_ptr,
+			(changed_bits << 16) | val,
+			(regnum << 20) | (0x1c039 - port));
 
 	/* Set reg reg */
 	switch(regnum) {
@@ -1014,13 +1017,24 @@ scc_maybe_br_event(dword64 dfcyc, int port)
 		return;
 	}
 	/* also, if ext ints not enabled, don't do baud rate ints */
-	if((scc_ptr->reg[15] & 0x02) == 0) {
+	if(((scc_ptr->reg[15] & 0x02) == 0) || ((scc_ptr->reg[9] & 8) == 0)) {
 		return;
 	}
 
 	br_dcycs = scc_ptr->br_dcycs;
 	if(br_dcycs < 1.0) {
 		halt_printf("br_dcycs: %f!\n", br_dcycs);
+#if 0
+		printf("br_dcycs: %f!\n", br_dcycs);
+		dbg_log_info(dfcyc, (word32)(br_dcycs * 65536),
+			(scc_ptr->reg[15] << 24) | (scc_ptr->reg[14] << 16) |
+			(scc_ptr->reg[13] << 8) | scc_ptr->reg[12], 0xdc1c);
+		dbg_log_info(dfcyc,
+			(scc_ptr->reg[11] << 24) | (scc_ptr->reg[10] << 16) |
+			(scc_ptr->reg[9] << 8) | scc_ptr->reg[5],
+			(scc_ptr->reg[4] << 24) | (scc_ptr->reg[3] << 16) |
+			(scc_ptr->reg[1] << 8) | scc_ptr->reg[0], 0xdc1b);
+#endif
 	}
 
 	scc_ptr->br_event_pending = 1;

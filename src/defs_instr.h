@@ -1,4 +1,4 @@
-// $KmKId: defs_instr.h,v 1.67 2023-09-11 12:35:25+00 kentd Exp $
+// $KmKId: defs_instr.h,v 1.69 2023-11-05 00:58:45+00 kentd Exp $
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -74,7 +74,8 @@
 		}						\
 	} else {						\
 		/* 16-bit re-reads addr+1 again */		\
-		GET_MEMORY8(addr_latch + 1, dummy1);		\
+		dummy1 = addr_latch + 1;			\
+		GET_MEMORY8(dummy1, dummy1);			\
 		addr_latch--;					\
 	}
 
@@ -509,7 +510,6 @@
 	tmp1 = arg | acc;			\
 	zero = arg & acc;			\
 	SET_MEMORY16(addr_latch, tmp1, in_bank);
-		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
 #endif
 
 #undef ASL_INST
@@ -526,7 +526,6 @@
 	tmp1 = (arg << 1) & 0xffff;		\
 	SET_NEG_ZERO16(tmp1);			\
 	SET_MEMORY16(addr_latch, tmp1, in_bank);
-		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
 #endif
 
 #undef ROL_INST
@@ -544,7 +543,6 @@
 	SET_MEMORY16(addr_latch, arg, in_bank);	\
 	SET_NEG_ZERO16(arg & 0xffff);		\
 	SET_CARRY16(arg);
-		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
 #endif
 
 #undef LSR_INST
@@ -561,7 +559,6 @@
 	arg = (arg >> 1) & 0x7fff;			\
 	SET_NEG_ZERO16(arg);				\
 	SET_MEMORY16(addr_latch, arg, in_bank);
-		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
 #endif
 
 #undef ROR_INST

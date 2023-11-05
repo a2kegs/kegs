@@ -1,4 +1,19 @@
 
+Changes in KEGS v1.31 since v1.30 (11/04/23)
+- Fix Windows failure where KEGS would quit on startup if config.kegs
+	contained a new ROM path.
+- Fix a Code Red halt running the Printer57.6 driver where KEGS thought it
+	might need to generate a baud rate event every .5 cycles.
+- Fix disk image selection screen bug where s7d10-s7d12 could wrap and make
+	it hard to leave the screen.
+- Add a Slinky RAM card in slot 4 (with no firmware), works even with
+	Mockingboard.
+- Fix scanline interrupts which were happening too early starting with
+	version 1.24.
+- Another false read bug was causing 16-bit RMW cycles to read the next
+	address (which is incorrect).
+
+
 Changes in KEGS v1.30 since v1.29 (09/23/23)
 - Proper emulation of the $C080-$C08F language card soft switches.
 - Improved INTC8ROM emulation, so a2audit passes (with Apple //e ROMs)

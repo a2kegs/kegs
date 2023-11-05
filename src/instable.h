@@ -1,4 +1,4 @@
-// "@(#)$KmKId: instable.h,v 1.118 2023-06-02 19:56:30+00 kentd Exp $"
+// "@(#)$KmKId: instable.h,v 1.119 2023-11-05 00:58:27+00 kentd Exp $"
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -730,7 +730,7 @@ case 0x6a:			/*  ROR a */
 
 case 0x6b:			/*  RTL */
 	CYCLES_PLUS_1;
-	PULL24(tmp1);
+	PULL24_UNSAFE(tmp1);
 	kpc = (tmp1 & 0xff0000) + ((tmp1 + 1) & 0xffff);
 	break;
 
@@ -1092,7 +1092,7 @@ case 0xaa:			/*  TAX */
 case 0xab:			/*  PLB */
 	INC_KPC_1;
 	CYCLES_PLUS_1
-	PULL8(dbank);
+	PULL8_UNSAFE(dbank);
 	SET_NEG_ZERO8(dbank);
 	break;
 

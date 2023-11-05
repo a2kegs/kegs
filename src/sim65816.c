@@ -1,4 +1,4 @@
-const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.471 2023-09-23 17:52:12+00 kentd Exp $";
+const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.474 2023-11-05 00:27:11+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -70,7 +70,6 @@ extern int g_preferred_rate;
 
 int	g_a2_fatal_err = 0;
 dword64	g_dcycles_end = 0;
-int	g_fcycles_end_for_event = 0;
 int	g_halt_sim = 0;
 int	g_rom_version = -1;
 int	g_user_halt_bad = 0;
@@ -82,7 +81,7 @@ int	g_code_yellow = 0;
 int	g_emul_6502_ind_page_cross_bug = 0;
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "1.30";
+const char g_kegs_version_str[] = "1.31";
 
 dword64	g_last_vbl_dfcyc = 0;
 dword64	g_cur_dfcyc = 1;
@@ -431,11 +430,6 @@ do_reset()
 		exit(5);						\
 	}
 
-void
-check_engine_asm_defines()
-{
-}
-
 byte *
 memalloc_align(int size, int skip_amt, void **alloc_ptr)
 {
@@ -704,7 +698,6 @@ kegs_init(int mdepth)
 	g_config_control_panel = 0;
 
 	woz_crc_init();
-	check_engine_asm_defines();
 	fixed_memory_ptrs_init();
 
 	if(sizeof(word32) != 4) {
@@ -713,25 +706,25 @@ kegs_init(int mdepth)
 		return 1;
 	}
 	prepare_a2_font();		// Prepare default built-in font
-
-	iwm_init();
-	config_init();
 	scc_init();
-	parse_do_file_overrides();
+	iwm_init();
+	init_reg();
+	adb_init();
+	initialize_events();
+	debugger_init();
+	setup_pageinfo();
 
+	config_init();
+	parse_do_file_overrides();
 	load_roms_init_memory();
 
-	init_reg();
 	clear_halt();
-
-	initialize_events();
 
 	video_init(mdepth);
 
 	sound_init();
-
-	adb_init();
 	joystick_init();
+
 	if(g_rom_version >= 3) {
 		g_c036_val_speed |= 0x40;	/* set power-on bit */
 	}
@@ -756,7 +749,7 @@ load_roms_init_memory()
 	} else {
 		g_c036_val_speed &= (~0x40);	/* clear the bit */
 	}
-	do_reset();
+	// Do not call do_reset(), caller is responsible for that
 
 	/* if user booted ROM 01, switches to ROM 03, then switches back */
 	/*  to ROM 01, then the reset routines call to Tool $0102 looks */
@@ -1762,7 +1755,8 @@ do_scan_int(dword64 dfcyc, int line)
 void
 check_scan_line_int(int cur_video_line)
 {
-	int	delay, start, line;
+	dword64	ddelay;
+	int	start, line;
 	int	i;
 
 	/* Called during VBL interrupt phase */
@@ -1793,9 +1787,9 @@ check_scan_line_int(int cur_video_line)
 		}
 		if(g_slow_memory_ptr[0x19d00+i] & 0x40) {
 			irq_printf("Adding scan_int for line %d\n", i);
-			delay = 65 * line;
-			add_event_entry(g_last_vbl_dfcyc + delay, EV_SCAN_INT +
-					(line << 8));
+			ddelay = (65ULL * line) << 16;
+			add_event_entry(g_last_vbl_dfcyc + ddelay,
+						EV_SCAN_INT + (line << 8));
 			g_scan_int_events = 1;
 			check_for_one_event_type(EV_SCAN_INT);
 			break;
@@ -1815,6 +1809,8 @@ check_for_new_scan_int(dword64 dfcyc)
 void
 init_reg()
 {
+	memset(&engine, 0, sizeof(engine));
+
 	engine.acc = 0;
 	engine.xreg = 0;
 	engine.yreg = 0;

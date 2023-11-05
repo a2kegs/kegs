@@ -1,4 +1,4 @@
-const char rcsid_engine_c_c[] = "@(#)$KmKId: engine_c.c,v 1.91 2023-04-27 14:15:11+00 kentd Exp $";
+const char rcsid_engine_c_c[] = "@(#)$KmKId: engine_c.c,v 1.93 2023-11-05 00:58:08+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -23,7 +23,6 @@ extern int g_code_red;
 extern int g_ignore_halts;
 extern int g_user_halt_bad;
 extern dword64 g_dcycles_end;
-extern int g_fcycles_end_for_event;
 extern dword64 g_last_vbl_dfcyc;
 extern dword64 g_cur_dfcyc;
 extern int g_wait_pending;
@@ -187,11 +186,10 @@ extern word32 g_slow_mem_changed[];
 
 #define PUSH8(arg)						\
 	SET_MEMORY8(stack, arg);				\
-	stack--;						\
+	stack = (stack - 1) & 0xffff;				\
 	if(psr & 0x100) {					\
 		stack = 0x100 | (stack & 0xff);			\
-	}							\
-	stack = stack & 0xffff;
+	}
 
 #define PUSH16(arg)						\
 	if((stack & 0xfe) == 0) {				\
@@ -199,28 +197,25 @@ extern word32 g_slow_mem_changed[];
 		PUSH8((arg) >> 8);				\
 		PUSH8(arg);					\
 	} else {						\
-		stack -= 2;					\
-		stack = stack & 0xffff;				\
+		stack = (stack - 2) & 0xffff;			\
 		SET_MEMORY16(stack + 1, arg, 1);		\
 	}
 
 #define PUSH16_UNSAFE(arg)					\
 	save_addr = (stack - 1) & 0xffff;			\
-	stack -= 2;						\
+	stack = (stack - 2) & 0xffff;				\
+	SET_MEMORY16(save_addr, arg, 1);			\
 	if(psr & 0x100) {					\
 		stack = 0x100 | (stack & 0xff);			\
-	}							\
-	stack = stack & 0xffff;					\
-	SET_MEMORY16(save_addr, arg, 1);
+	}
 
 #define PUSH24_UNSAFE(arg)					\
 	save_addr = (stack - 2) & 0xffff;			\
-	stack -= 3;						\
+	stack = (stack - 3) & 0xffff;				\
+	SET_MEMORY24(save_addr, arg, 1);			\
 	if(psr & 0x100) {					\
 		stack = 0x100 | (stack & 0xff);			\
-	}							\
-	stack = stack & 0xffff;					\
-	SET_MEMORY24(save_addr, arg, 1);
+	}
 
 #define PULL8(dest)						\
 	stack++;						\
@@ -229,6 +224,13 @@ extern word32 g_slow_mem_changed[];
 	}							\
 	stack = stack & 0xffff;					\
 	GET_MEMORY8(stack, dest);
+
+#define PULL8_UNSAFE(dest)					\
+	stack = (stack + 1) & 0xffff;				\
+	GET_MEMORY8(stack, dest);				\
+	if(psr & 0x100) {					\
+		stack = 0x100 | (stack & 0xff);			\
+	}
 
 #define PULL16(dest)						\
 	if((stack & 0xfe) == 0xfe) {	/* page cross */	\
@@ -245,9 +247,6 @@ extern word32 g_slow_mem_changed[];
 
 #define PULL16_UNSAFE(dest)					\
 	stack = (stack + 1) & 0xffff;				\
-	if(psr & 0x100) {					\
-		stack = 0x100 | (stack & 0xff);			\
-	}							\
 	GET_MEMORY16(stack, dest, 1);				\
 	stack = (stack + 1) & 0xffff;				\
 	if(psr & 0x100) {					\
@@ -267,6 +266,14 @@ extern word32 g_slow_mem_changed[];
 		if(psr & 0x100) {				\
 			stack = 0x100 | (stack & 0xff);		\
 		}						\
+	}
+
+#define PULL24_UNSAFE(dest)					\
+	stack = (stack + 1) & 0xffff;				\
+	GET_MEMORY24(stack, dest, 1);				\
+	stack = (stack + 2) & 0xffff;				\
+	if(psr & 0x100) {					\
+		stack = 0x100 | (stack & 0xff);			\
 	}
 
 #define SET_MEMORY8(addr, val)						\
@@ -741,7 +748,6 @@ void
 engine_recalc_events()
 {
 	g_dcycles_end = 0;		// End inner loop
-	g_fcycles_end_for_event = 1;
 	g_engine_recalc_event++;
 }
 
@@ -759,7 +765,6 @@ set_halt_act(int val)
 			video_set_active(&g_debugwin_kimage, 1);
 		}
 		g_dcycles_end = 0;
-		g_fcycles_end_for_event = 1;
 	}
 }
 

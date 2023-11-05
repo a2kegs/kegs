@@ -1,5 +1,5 @@
 #ifdef INCLUDE_RCSID_C
-const char rcsid_scc_h[] = "@(#)$KmKId: scc.h,v 1.24 2023-08-28 02:03:21+00 kentd Exp $";
+const char rcsid_scc_h[] = "@(#)$KmKId: scc.h,v 1.25 2023-10-30 02:35:55+00 kentd Exp $";
 #endif
 
 /************************************************************************/
@@ -57,9 +57,12 @@ STRUCT(Scc) {
 	int	read_called_this_vbl;
 	int	write_called_this_vbl;
 
-	int	mode;
-	int	reg_ptr;
-	int	reg[16];
+	byte	dcd;
+	byte	reg_ptr;
+	byte	br_is_zero;
+	byte	tx_buf_empty;
+	word32	mode;
+	byte	reg[16];
 
 	int	rx_queue_depth;
 	byte	rx_queue[4];
@@ -72,12 +75,9 @@ STRUCT(Scc) {
 	int	out_wrptr;
 	byte	out_buf[SCC_OUTBUF_SIZE];
 
-	int	br_is_zero;
-	int	tx_buf_empty;
 	int	wantint_rx;
 	int	wantint_tx;
 	int	wantint_zerocnt;
-	int	dcd;
 
 	double	br_dcycs;
 	double	tx_dcycs;

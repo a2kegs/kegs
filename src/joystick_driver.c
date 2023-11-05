@@ -1,4 +1,4 @@
-const char rcsid_joystick_driver_c[] = "@(#)$KmKId: joystick_driver.c,v 1.22 2023-05-04 19:33:31+00 kentd Exp $";
+const char rcsid_joystick_driver_c[] = "@(#)$KmKId: joystick_driver.c,v 1.23 2023-09-26 02:59:00+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -47,8 +47,7 @@ void
 joystick_init()
 {
 	char	joy_name[MAX_JOY_NAME];
-	int	version;
-	int	fd;
+	int	version, fd;
 	int	i;
 
 	fd = open(g_joystick_dev, O_RDONLY | O_NONBLOCK);
@@ -78,8 +77,6 @@ joystick_init()
 		g_paddle_val[i] = 32767;
 	}
 	g_paddle_buttons = 0xc;
-
-	joystick_update(0.0);
 }
 
 /* joystick_update_linux() called from paddles.c.  Update g_paddle_val[] */
@@ -88,12 +85,7 @@ void
 joystick_update(dword64 dfcyc)
 {
 	struct js_event js;	/* the linux joystick event record */
-	int	mask;
-	int	val;
-	int	num;
-	int	type;
-	int	ret;
-	int	len;
+	int	mask, val, num, type, ret, len;
 	int	i;
 
 	/* suck up to 20 events, then give up */
@@ -179,8 +171,6 @@ joystick_init()
 		g_paddle_val[i] = 32767;
 	}
 	g_paddle_buttons = 0xc;
-
-	joystick_update(0.0);
 }
 
 void

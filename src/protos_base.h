@@ -11,7 +11,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.154 2023-09-23 17:53:03+00 kentd Exp $";
+const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.156 2023-09-27 03:48:47+00 kentd Exp $";
 #endif
 
 #ifdef __GNUC__
@@ -366,9 +366,9 @@ void scc_socket_do_answer(dword64 dfcyc, int port);
 
 /* iwm.c */
 void iwm_init_drive(Disk *dsk, int smartport, int drive, int disk_525);
-void disk_set_num_tracks(Disk *dsk, int num_tracks);
 void iwm_init(void);
 void iwm_reset(void);
+void disk_set_num_tracks(Disk *dsk, int num_tracks);
 word32 iwm_get_default_track_bits(Disk *dsk, word32 qtr_trk);
 void draw_iwm_status(int line, char *buf);
 void iwm_flush_cur_disk(void);
@@ -468,6 +468,8 @@ void show_addr(byte *ptr);
 word32 moremem_fix_vector_pull(word32 addr);
 word32 io_read(word32 loc, dword64 *cyc_ptr);
 void io_write(word32 loc, word32 val, dword64 *cyc_ptr);
+word32 slinky_devsel_read(dword64 dfcyc, word32 loc);
+void slinky_devsel_write(dword64 dfcyc, word32 loc, word32 val);
 word32 c3xx_read(dword64 dfcyc, word32 loc);
 word32 get_lines_since_vbl(dword64 dfcyc);
 int in_vblank(dword64 dfcyc);
@@ -517,7 +519,6 @@ void show_regs_act(Engine_reg *eptr);
 void show_regs(void);
 void my_exit(int ret);
 void do_reset(void);
-void check_engine_asm_defines(void);
 byte *memalloc_align(int size, int skip_amt, void **alloc_ptr);
 void memory_ptr_init(void);
 int parse_argv_file_override(const char *str1, const char *str2);

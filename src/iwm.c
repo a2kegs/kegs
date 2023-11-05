@@ -1,4 +1,4 @@
-const char rcsid_iwm_c[] = "@(#)$KmKId: iwm.c,v 1.206 2023-09-23 17:51:46+00 kentd Exp $";
+const char rcsid_iwm_c[] = "@(#)$KmKId: iwm.c,v 1.207 2023-09-26 02:59:52+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -161,20 +161,12 @@ iwm_init_drive(Disk *dsk, int smartport, int drive, int disk_525)
 }
 
 void
-disk_set_num_tracks(Disk *dsk, int num_tracks)
-{
-	if(num_tracks <= 2*80) {
-		dsk->num_tracks = num_tracks;
-	} else {
-		printf("num_tracks out of range: %d\n", num_tracks);
-	}
-}
-
-void
 iwm_init()
 {
 	word32	val;
 	int	i;
+
+	memset(&g_iwm, 0, sizeof(g_iwm));
 
 	for(i = 0; i < 2; i++) {
 		iwm_init_drive(&(g_iwm.drive525[i]), 0, i, 1);
@@ -197,8 +189,6 @@ iwm_init()
 	} else {
 		halt_printf("iwm_init called twice!\n");
 	}
-
-	iwm_reset();
 }
 
 void
@@ -221,6 +211,16 @@ iwm_reset()
 	g_iwm.num_active_writes = 0;
 
 	g_iwm_motor_on = 0;
+}
+
+void
+disk_set_num_tracks(Disk *dsk, int num_tracks)
+{
+	if(num_tracks <= 2*80) {
+		dsk->num_tracks = num_tracks;
+	} else {
+		halt_printf("num_tracks out of range: %d\n", num_tracks);
+	}
 }
 
 word32

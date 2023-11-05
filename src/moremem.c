@@ -1,4 +1,4 @@
-const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.299 2023-09-23 17:53:57+00 kentd Exp $";
+const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.302 2023-11-04 01:45:55+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -85,6 +85,11 @@ word32	g_zipgs_reg_c05c = 0x00;
 	// 7:1==slot delay enable (for 52-54ms), 0==speaker 5ms delay
 
 word32	g_c06c_latched_cyc = 0;
+
+#define SLINKY_RAM_SIZE	0x100000		/* 1MB */
+word32	g_slinky_addr = 0;
+byte g_slinky_ram[SLINKY_RAM_SIZE];
+
 
 #define EMUSTATE(a)	{ #a, &a }
 
@@ -1351,8 +1356,8 @@ io_read(word32 loc, dword64 *cyc_ptr)
 			if((loc & 1) == 0) {
 				new_wrdefram = 0;	// Any even access clrs
 			} else {
-				new_wrdefram = (g_c068_statereg << 1) & 0x200;
-				// Odd read make Ram writeable if PREWRITE set
+				new_wrdefram |= (g_c068_statereg << 1) & 0x200;
+				// Odd read also makes Ram wr if PREWR was set
 			}
 			set_statereg(dfcyc, (g_c068_statereg & ~(0x30c)) |
 					new_lcbank2 | new_rdrom |
@@ -1362,6 +1367,9 @@ io_read(word32 loc, dword64 *cyc_ptr)
 			// a0=1 && rd set prewrite.  a0=0, or wr: clear prewrite
 			// wrdefram is clr if a0=0, set if prewrite and
 			//  old_prewrite are set, otherwise stays same.
+			// From Apple language card schematics:
+			//  wr_def = (wr_def_ff || (prewr && prewr_ff)) && a0;
+			//  prewr = read && a0
 			return float_bus(dfcyc);
 		/* 0xc090 - 0xc09f */
 		case 0x90: case 0x91: case 0x92: case 0x93:
@@ -1387,6 +1395,8 @@ io_read(word32 loc, dword64 *cyc_ptr)
 
 		/* 0xc0c0 - 0xc0cf */
 		case 0xc0: case 0xc1: case 0xc2: case 0xc3:
+			// Slot 4 has a Slinky RAM card
+			return slinky_devsel_read(dfcyc, loc);
 		case 0xc4: case 0xc5: case 0xc6: case 0xc7:
 		case 0xc8: case 0xc9: case 0xca: case 0xcb:
 		case 0xcc: case 0xcd: case 0xce: case 0xcf:
@@ -2040,6 +2050,9 @@ io_write(word32 loc, word32 val, dword64 *cyc_ptr)
 
 		/* 0xc0c0 - 0xc0cf */
 		case 0xc0: case 0xc1: case 0xc2: case 0xc3:
+			// Slot 4 has a Slinky RAM card
+			slinky_devsel_write(dfcyc, loc, val);
+			return;
 		case 0xc4: case 0xc5: case 0xc6: case 0xc7:
 		case 0xc8: case 0xc9: case 0xca: case 0xcb:
 		case 0xcc: case 0xcd: case 0xce: case 0xcf:
@@ -2109,6 +2122,42 @@ io_write(word32 loc, word32 val, dword64 *cyc_ptr)
 	}
 	printf("Huh2? Write loc: %x\n", loc);
 	exit(-290);
+}
+
+word32
+slinky_devsel_read(dword64 dfcyc, word32 loc)
+{
+	word32	val;
+
+	loc = loc & 0xf;
+	val = 0;
+	if(loc <= 2) {
+		val = (g_slinky_addr >> (8*loc)) & 0xff;
+	}
+	if(loc == 3) {
+		val = g_slinky_ram[g_slinky_addr & (SLINKY_RAM_SIZE - 1)];
+		dbg_log_info(dfcyc, g_slinky_addr, val, 0xc0c3);
+		g_slinky_addr++;
+	}
+	return val;
+}
+
+void
+slinky_devsel_write(dword64 dfcyc, word32 loc, word32 val)
+{
+	word32	mask;
+
+	loc = loc & 0xf;
+	dbg_log_info(dfcyc, g_slinky_addr, val, 0xc0c0 + loc);
+	if(loc <= 2) {
+		mask = 0xff << (8 * loc);
+		val = val * 0x010101;
+		g_slinky_addr = (g_slinky_addr & (~mask)) | (val & mask);
+	}
+	if(loc == 3) {
+		g_slinky_ram[g_slinky_addr & (SLINKY_RAM_SIZE - 1)] = val;
+		g_slinky_addr++;
+	}
 }
 
 word32

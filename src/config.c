@@ -1,4 +1,4 @@
-const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.150 2023-09-16 20:51:44+00 kentd Exp $";
+const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.153 2023-10-04 14:16:00+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -165,9 +165,9 @@ Cfg_menu g_cfg_disk_menu[] = {
 { "s7d7 = ", 0, 0, 0, CFGTYPE_DISK + 0x7060 },
 { "s7d8 = ", 0, 0, 0, CFGTYPE_DISK + 0x7070 },
 { "s7d9 = ", 0, 0, 0, CFGTYPE_DISK + 0x7080 },
-{ "s7d10 = ", 0, 0, 0, CFGTYPE_DISK + 0x7090 },
-{ "s7d11 = ", 0, 0, 0, CFGTYPE_DISK + 0x70a0 },
-{ "s7d12 = ", 0, 0, 0, CFGTYPE_DISK + 0x70b0 },
+{ "s7d10= ", 0, 0, 0, CFGTYPE_DISK + 0x7090 },
+{ "s7d11= ", 0, 0, 0, CFGTYPE_DISK + 0x70a0 },
+{ "s7d12= ", 0, 0, 0, CFGTYPE_DISK + 0x70b0 },
 { "", 0, 0, 0, 0 },
 { "Back to Main Config", g_cfg_main_menu, 0, 0, CFGTYPE_MENU },
 { 0, 0, 0, 0, 0 },
@@ -983,6 +983,7 @@ cfg_file_update_ptr(char **strptr, const char *str, int need_update)
 	if(strptr == &(g_cfg_rom_path)) {
 		printf("Updated ROM file\n");
 		load_roms_init_memory();
+		do_reset();
 	}
 	if(strptr == &(g_cfg_charrom_path)) {
 		printf("Updated Char ROM file\n");
@@ -2014,7 +2015,8 @@ cfg_read_from_fd(int fd, byte *bufptr, dword64 dpos, dword64 dsize)
 			return 0;
 		}
 		if(dret == 0) {
-			printf("Unexpected end of file\n");
+			printf("Unexpected end of file, tried to read from "
+				"dpos:%lld dsize:%lld\n", dpos, dsize);
 			return 0;
 		}
 		doff += dret;

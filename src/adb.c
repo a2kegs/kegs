@@ -1,4 +1,4 @@
-const char rcsid_adb_c[] = "@(#)$KmKId: adb.c,v 1.112 2023-05-18 00:32:12+00 kentd Exp $";
+const char rcsid_adb_c[] = "@(#)$KmKId: adb.c,v 1.113 2023-09-26 02:58:50+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -370,8 +370,6 @@ adb_init()
 	for(i = 0; i < 10; i++) {
 		g_keypad_key_is_down[i] = 0;
 	}
-
-	adb_reset();
 }
 
 void
