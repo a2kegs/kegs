@@ -1,4 +1,4 @@
-const char rcsid_smartport_c[] = "@(#)$KmKId: smartport.c,v 1.55 2023-05-19 13:52:30+00 kentd Exp $";
+const char rcsid_smartport_c[] = "@(#)$KmKId: smartport.c,v 1.58 2023-09-06 00:28:46+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -613,7 +613,7 @@ do_write_c7(int unit_num, word32 buf, word32 blk)
 	byte	local_buf[0x200];
 	Disk	*dsk;
 	dword64	dret, dimage_start, dimage_size;
-	int	len, fd;
+	int	len, fd, ret;
 	int	i;
 
 	dbg_log_info(g_cur_dfcyc, (buf << 16) | (unit_num & 0xff), blk, 0xc702);
@@ -638,13 +638,22 @@ do_write_c7(int unit_num, word32 buf, word32 blk)
 		local_buf[i] = get_memory_c(buf + i);
 	}
 
-	if(dsk->write_prot || (dsk->raw_data && !dsk->dynapro_info_ptr)) {
-		printf("Write, but %s is write protected!\n", dsk->name_ptr);
+	if(dsk->write_prot) {
+		printf("Write, but s7d%d %s is write protected!\n",
+						unit_num + 1, dsk->name_ptr);
 		return 0x2b;
 	}
 
 	if(dsk->write_through_to_unix == 0) {
-		halt_printf("Write to %s, but not wr_thru!\n", dsk->name_ptr);
+		//halt_printf("Write to %s, but not wr_thru!\n", dsk->name_ptr);
+		if(dsk->raw_data) {
+			// Update the memory copy
+			ret = smartport_memory_write(dsk, &local_buf[0],
+						blk * 0x200ULL, 0x200);
+			if(ret) {
+				return 0x27;		// I/O Error
+			}
+		}
 		return 0x00;
 	}
 
@@ -670,11 +679,31 @@ do_write_c7(int unit_num, word32 buf, word32 blk)
 			halt_printf("write ret %08x bytes, errno: %d\n", len,
 									errno);
 			smartport_error();
-			return 0x27;
+			dsk->write_prot = 1;
+			return 0x2b;		// Write protected
 		}
 	}
 
 	g_io_amt += 0x200;
+
+	return 0;
+}
+
+int
+smartport_memory_write(Disk *dsk, byte *bufptr, dword64 doffset, word32 size)
+{
+	byte	*bptr;
+	word32	ui;
+
+	bptr = dsk->raw_data;
+	if((bptr == 0) || ((doffset + size) > dsk->dimage_size)) {
+		printf("Write to %s failed, %08llx past end %08llx\n",
+			dsk->name_ptr, doffset, dsk->dimage_size);
+		return -1;
+	}
+	for(ui = 0; ui < size; ui++) {
+		bptr[doffset + ui] = bufptr[ui];
+	}
 
 	return 0;
 }
@@ -685,7 +714,7 @@ do_format_c7(int unit_num)
 	byte	local_buf[0x1000];
 	Disk	*dsk;
 	dword64	dimage_start, dimage_size, dret, dtotal, dsum;
-	int	len, max, fd;
+	int	len, max, fd, ret;
 	int	i;
 
 	dbg_log_info(g_cur_dfcyc, (unit_num & 0xff), 0, 0xc703);
@@ -712,8 +741,10 @@ do_format_c7(int unit_num)
 	}
 
 	if(dsk->write_through_to_unix == 0) {
-		printf("Format of %s ignored\n", dsk->name_ptr);
-		return 0x00;
+		if(!dsk->raw_data) {
+			printf("Format of %s ignored\n", dsk->name_ptr);
+			return 0x00;
+		}
 	}
 
 	for(i = 0; i < 0x1000; i++) {
@@ -735,16 +766,23 @@ do_format_c7(int unit_num)
 
 	while(dsum < dtotal) {
 		max = (int)MY_MIN(0x1000, dtotal - dsum);
+		len = max;
 		if(dsk->dynapro_info_ptr) {
 			dynapro_write(dsk, &local_buf[0], dsum, max);
-			len = max;
+		} else if(dsk->raw_data) {
+			ret = smartport_memory_write(dsk, &local_buf[0],
+								dsum, max);
+			if(ret) {
+				return 0x27;		// I/O Error
+			}
 		} else {
 			len = (int)write(fd, &local_buf[0], max);
 		}
 		if(len != max) {
 			halt_printf("write ret %08x, errno:%d\n", len, errno);
 			smartport_error();
-			return 0x27;
+			dsk->write_prot = 1;
+			return 0x2b;		// Write-protected
 		}
 		dsum += len;
 	}

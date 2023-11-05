@@ -1,4 +1,4 @@
-const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.207 2023-06-16 19:30:50+00 kentd Exp $";
+const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.208 2023-09-23 17:52:53+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -38,7 +38,7 @@ extern dword64 g_cur_dfcyc;
 
 extern int g_line_ref_amt;
 
-extern int g_c034_val;
+extern word32 g_c034_val;
 extern int g_config_control_panel;
 extern int g_halt_sim;
 

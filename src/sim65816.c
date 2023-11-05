@@ -1,4 +1,4 @@
-const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.464 2023-06-17 20:43:04+00 kentd Exp $";
+const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.471 2023-09-23 17:52:12+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -37,22 +37,21 @@ extern char *g_argv0_path;
 
 extern int g_stepping;
 
-extern int g_c068_statereg;
+extern word32 g_c068_statereg;
 extern int g_cur_a2_stat;
 
-extern int g_c08x_wrdefram;
-extern int g_c02d_int_crom;
+extern word32 g_c02d_int_crom;
 
-extern int g_c035_shadow_reg;
-extern int g_c036_val_speed;
+extern word32 g_c035_shadow_reg;
+extern word32 g_c036_val_speed;
 
-extern int g_c023_val;
-extern int g_c041_val;
-extern int g_c046_val;
-extern int g_zipgs_reg_c059;
-extern int g_zipgs_reg_c05a;
-extern int g_zipgs_reg_c05b;
-extern int g_zipgs_unlock;
+extern word32 g_c023_val;
+extern word32 g_c041_val;
+extern word32 g_c046_val;
+extern word32 g_zipgs_reg_c059;
+extern word32 g_zipgs_reg_c05a;
+extern word32 g_zipgs_reg_c05b;
+extern word32 g_zipgs_unlock;
 extern Iwm g_iwm;
 
 Engine_reg engine;
@@ -81,14 +80,9 @@ int	g_ignore_halts = 1;
 int	g_code_red = 0;
 int	g_code_yellow = 0;
 int	g_emul_6502_ind_page_cross_bug = 0;
-int	g_use_alib = 0;
-int	g_raw_serial = 1;
-int	g_iw2_emul = 0;
-int	g_serial_out_masking = 0;
-int	g_serial_modem[2] = { 0, 1 };
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "1.29";
+const char g_kegs_version_str[] = "1.30";
 
 dword64	g_last_vbl_dfcyc = 0;
 dword64	g_cur_dfcyc = 1;
@@ -393,15 +387,12 @@ my_exit(int ret)
 void
 do_reset()
 {
-
 	g_c035_shadow_reg = 0;
 
-	g_c08x_wrdefram = 1;
-	if(g_rom_version == 0) {
-		g_c068_statereg = 0x08 + 0x04;	/* rdrom, lcbank2 */
-		g_c02d_int_crom = 0xff;
-	} else {
-		g_c068_statereg = 0x08 + 0x04 + 0x01; /* rdrom, lcbank2, intcx*/
+	g_c068_statereg = 0x200 | 0x08 | 0x04;	// Set wrdefram, rdrom, lcbank2
+	g_c02d_int_crom = 0xff;
+	if(g_rom_version != 0) {		// IIgs ROM01 or ROM03
+		g_c068_statereg |= 0x01;	// also set intcx
 		g_c02d_int_crom = 0;
 	}
 	g_c023_val = 0;
@@ -416,7 +407,6 @@ do_reset()
 	g_wait_pending = 0;
 	g_stp_pending = 0;
 
-
 	video_reset();
 	adb_reset();
 	iwm_reset();
@@ -430,7 +420,6 @@ do_reset()
 	engine.kpc = get_memory16_c(0x00fffc);
 
 	g_stepping = 0;
-
 }
 
 #define CHECK(start, var, value, var1, var2)				\
@@ -607,12 +596,6 @@ parse_argv(int argc, char **argv, int slashes_to_find)
 		} else if(!strcmp("-noignhalt", argv[i])) {
 			printf("Not ignoring code red halts\n");
 			g_ignore_halts = 0;
-		} else if(!strcmp("-hpdev", argv[i])) {
-			printf("Using /dev/audio\n");
-			g_use_alib = 0;
-		} else if(!strcmp("-alib", argv[i])) {
-			printf("Using Aserver audio server\n");
-			g_use_alib = 1;
 		} else if(!strcmp("-24", argv[i])) {
 			printf("Using 24-bit visual\n");
 			g_force_depth = 24;
@@ -733,6 +716,7 @@ kegs_init(int mdepth)
 
 	iwm_init();
 	config_init();
+	scc_init();
 	parse_do_file_overrides();
 
 	load_roms_init_memory();
@@ -746,7 +730,6 @@ kegs_init(int mdepth)
 
 	sound_init();
 
-	scc_init();
 	adb_init();
 	joystick_init();
 	if(g_rom_version >= 3) {
@@ -1032,8 +1015,8 @@ double	g_dtime_eff_pmhz_array[60];
 double	g_dtime_in_run_16ms = 0;
 double	g_dtime_outside_run_16ms = 0;
 double	g_dtime_end_16ms = 0;
-int	g_limit_speed = 0;
-int	g_zip_speed_mhz = 8;		// 8MHz default
+int	g_limit_speed = 3;
+int	g_zip_speed_mhz = 16;		// 16MHz default
 double	sim_time[60];
 double	g_sim_sum = 0.0;
 
@@ -1115,8 +1098,10 @@ run_16ms()
 
 	// If we are ahead, then do the sleep now
 	micro_sleep(g_dtime_sleep);
-	g_dtime_sleep = 0.0;
 	dtime_end2 = get_dtime();
+	//printf("Did sleep for %f, dtime passed:%f\n", g_dtime_sleep,
+	//					dtime_end2 - dtime_end);
+	g_dtime_sleep = 0.0;
 
 	g_dtime_in_sleep += (dtime_end2 - dtime_end);
 
@@ -1288,7 +1273,7 @@ run_a2_one_vbl()
 				do_vbl_int();
 				break;
 			case EV_SCC:
-				do_scc_event(type >> 8, dfcyc);
+				scc_do_event(dfcyc, type >> 8);
 				break;
 			case EV_VID_UPD:
 				video_update_event_line(type >> 8);
@@ -1567,7 +1552,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 
 		draw_iwm_status(2, status_buf);
 
-		snprintf(status_buf, sizeof(status_buf), "KEGS v%-6s       "
+		snprintf(status_buf, sizeof(status_buf), " KEGS v%-6s       "
 			"Press F4 for Config Menu    %s %s",
 			g_kegs_version_str, code_str1, code_str2);
 		video_update_status_line(3, status_buf);
@@ -1666,6 +1651,11 @@ update_60hz(dword64 dfcyc, double dtime_now)
 		/* we're running fast, usleep */
 		g_dtime_sleep = dtime_till_expected - (1.0/VBL_RATE);
 	}
+#if 0
+	printf("Sleep %f, till_exp:%f, dtime_now:%f, exp:%f\n",
+		g_dtime_sleep, dtime_till_expected, dtime_now,
+		g_dtime_expected);
+#endif
 
 	g_dtime_this_vbl_array[prev_vbl_index] = dtime_this_vbl;
 	g_dtime_exp_array[prev_vbl_index] = g_dtime_expected;

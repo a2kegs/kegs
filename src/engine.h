@@ -1,4 +1,4 @@
-// "@(#)$KmKId: engine.h,v 1.8 2023-05-04 19:35:29+00 kentd Exp $"
+// "@(#)$KmKId: engine.h,v 1.9 2023-09-11 12:55:16+00 kentd Exp $"
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -23,10 +23,11 @@ ENGINE_TYPE (Engine_reg *engine_ptr)
 	dword64	dfcyc, dplus_1, dcycles_tmp1, dplus_x_m1;
 	register word32	kpc, acc, xreg, yreg, direct, psr, zero, neg7, addr;
 	word32	wstat, arg, stack, dbank, opcode, addr_latch, tmp1, tmp2;
-	word32	getmem_tmp, save_addr, pull_tmp, tmp_bytes;
+	word32	getmem_tmp, save_addr, pull_tmp, tmp_bytes, dummy1;
 
 	tmp_pc_ptr = 0;
-	if(tmp_pc_ptr) {		// "use" tmp_pc_ptr to avoid warning
+	dummy1 = 0;
+	if(tmp_pc_ptr || dummy1) {	// "use" tmp_pc_ptr to avoid warning
 	}
 
 	kpc = engine_ptr->kpc;

@@ -1,4 +1,4 @@
-const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.59 2023-06-21 21:15:26+00 kentd Exp $";
+const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.63 2023-09-12 19:41:17+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -12,13 +12,20 @@ const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.59 2023-06-21 21:15:26+00 kent
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
+// Driver for the Zilog SCC Z8530, which implements two channels (A,B) of
+//  serial ports, controlled by $C038-$C03B
+
 #include "defc.h"
 
 extern int Verbose;
 extern int g_code_yellow;
 extern dword64 g_cur_dfcyc;
-extern int g_raw_serial;
-extern int g_serial_out_masking;
+extern int g_serial_cfg[2];
+extern int g_serial_mask[2];
+extern char *g_serial_remote_ip[2];
+extern int g_serial_remote_port[2];
+extern char *g_serial_device[2];
+extern int g_serial_win_device[2];
 extern int g_irq_pending;
 
 /* scc	port 0 == channel A = slot 1 = c039/c03b */
@@ -43,6 +50,12 @@ int g_baud_table[] = {
 };
 
 int g_scc_overflow = 0;
+int	g_scc_init = 0;
+
+// cur_state >= 0 and matches g_serial_cfg[port]: port is in that mode
+// cur_state = -1: port is in no particular mode and should go to g_serial_cfg[]
+// cur_state = -2: port failed to enter g_serial_cfg[], do not try again until
+//		something changes
 
 void
 scc_init()
@@ -52,13 +65,16 @@ scc_init()
 
 	for(i = 0; i < 2; i++) {
 		scc_ptr = &(g_scc[i]);
-		scc_ptr->accfd = -1;
-		scc_ptr->sockfd = -1;
-		scc_ptr->socket_state = -1;
-		scc_ptr->rdwrfd = -1;
-		scc_ptr->state = 0;
-		scc_ptr->host_handle = 0;
-		scc_ptr->host_handle2 = 0;
+		memset(scc_ptr, 0, sizeof(*scc_ptr));
+		scc_ptr->cur_state = -1;
+		scc_ptr->modem_state = 0;
+		scc_ptr->sockfd = INVALID_SOCKET;
+		scc_ptr->rdwrfd = INVALID_SOCKET;
+		scc_ptr->sockaddr_ptr = 0;
+		scc_ptr->sockaddr_size = 0;
+		scc_ptr->unix_dev_fd = -1;
+		scc_ptr->win_com_handle = 0;
+		scc_ptr->win_dcb_ptr = 0;
 		scc_ptr->br_event_pending = 0;
 		scc_ptr->rx_event_pending = 0;
 		scc_ptr->tx_event_pending = 0;
@@ -67,10 +83,10 @@ scc_init()
 		scc_ptr->telnet_mode = 0;
 		scc_ptr->telnet_iac = 0;
 		scc_ptr->out_char_dfcyc = 0;
+		scc_ptr->socket_error = 0;
 		scc_ptr->socket_num_rings = 0;
 		scc_ptr->socket_last_ring_dfcyc = 0;
 		scc_ptr->modem_mode = 0;
-		scc_ptr->modem_dial_or_acc_mode = 0;
 		scc_ptr->modem_plus_mode = 0;
 		scc_ptr->modem_s0_val = 0;
 		scc_ptr->modem_cmd_len = 0;
@@ -85,6 +101,8 @@ scc_init()
 	}
 
 	scc_reset();
+
+	g_scc_init = 1;
 }
 
 void
@@ -96,17 +114,13 @@ scc_reset()
 	for(i = 0; i < 2; i++) {
 		scc_ptr = &(g_scc[i]);
 
-		scc_ptr->port = i;
 		scc_ptr->mode = 0;
 		scc_ptr->reg_ptr = 0;
 		scc_ptr->in_rdptr = 0;
 		scc_ptr->in_wrptr = 0;
 		scc_ptr->out_rdptr = 0;
 		scc_ptr->out_wrptr = 0;
-		scc_ptr->dcd = 0;
-		if(i == 0) {			// Slot 1, a printer generally
-			scc_ptr->dcd = 1;
-		}
+		scc_ptr->dcd = 1;
 		scc_ptr->wantint_rx = 0;
 		scc_ptr->wantint_tx = 0;
 		scc_ptr->wantint_zerocnt = 0;
@@ -184,7 +198,7 @@ scc_regen_clocks(int port)
 	double	br_dcycs, tx_dcycs, rx_dcycs, rx_char_size, tx_char_size;
 	double	clock_mult;
 	word32	reg4, reg11, reg14, br_const, max_diff, diff;
-	int	baud, state, baud_entries, pos;
+	int	baud, cur_state, baud_entries, pos;
 	int	i;
 
 	/*	Always do baud rate generator */
@@ -288,75 +302,198 @@ scc_regen_clocks(int port)
 	scc_ptr->tx_dcycs = tx_dcycs * tx_char_size;
 	scc_ptr->rx_dcycs = rx_dcycs * rx_char_size;
 
-	state = scc_ptr->state;
-	if(state == 2) {
-		/* real serial ports */
-#ifdef MAC
-		scc_serial_mac_change_params(port);
-#endif
+	cur_state = scc_ptr->cur_state;
+	if(cur_state == 0) {		// real serial ports
 #ifdef _WIN32
 		scc_serial_win_change_params(port);
+#else
+		scc_serial_unix_change_params(port);
 #endif
-	} else {
-		// scc_socket_change_params(port);
 	}
 }
 
 void
-scc_port_init(int port)
-{
-	int	state;
-
-	state = 0;
-	if(g_raw_serial) {
-#ifdef MAC
-		state = scc_serial_mac_init(port);
-#endif
-#ifdef _WIN32
-		state = scc_serial_win_init(port);
-#endif
-	}
-
-	if(state <= 0) {
-		scc_socket_init(port);
-	}
-}
-
-void
-scc_try_to_empty_writebuf(int port, dword64 dfcyc)
+scc_port_close(int port)
 {
 	Scc	*scc_ptr;
-	int	state;
 
 	scc_ptr = &(g_scc[port]);
-	state = scc_ptr->state;
+
+#ifdef _WIN32
+	scc_serial_win_close(port);
+#else
+	scc_serial_unix_close(port);
+#endif
+	scc_socket_close(port);
+
+	scc_ptr->cur_state = -1;		// Nothing open
+}
+
+void
+scc_port_open(dword64 dfcyc, int port)
+{
+	int	cfg;
+
+	cfg = g_serial_cfg[port];
+	printf("scc_port_open port:%d cfg:%d\n", port, cfg);
+
+	if(cfg == 0) {		// Real host serial port
+#ifdef _WIN32
+		scc_serial_win_open(port);
+#else
+		scc_serial_unix_open(port);
+#endif
+	} else if(cfg >= 1) {
+		scc_socket_open(dfcyc, port, cfg);
+	}
+	printf(" open socketfd:%ld\n", (long)g_scc[port].sockfd);
+}
+
+int
+scc_is_port_closed(dword64 dfcyc, int port)
+{
+	Scc	*scc_ptr;
+
+	// Returns 1 is the port is closed (not working).  Returns 0
+	//  if the port is open.  Tries to open the port if it is not in error
+	scc_ptr = &(g_scc[port]);
+	if(scc_ptr->cur_state == -1) {
+		scc_port_open(dfcyc, port);
+	}
+	if(scc_ptr->cur_state < 0) {
+		scc_ptr->cur_state = -2;
+		//printf("scc_is_port_closed p:%d returning 0\n", port);
+		return 1;		// Not open
+	}
+	return 0;			// Port is open!
+}
+
+char *
+scc_get_serial_status(int get_status, int port)
+{
+	char	buf[80];
+	char	*str;
+	int	cur_state;
+
+	if(get_status == 0) {
+		return 0;
+	}
+	cur_state = g_scc[port].cur_state;
+	str = "";
+	switch(cur_state) {
+	case -1:
+		str = "Not initialized yet";
+		break;
+	case 0:
+		snprintf(buf, 80, "Opened %s OK", g_serial_device[port]);
+		str = buf;
+		break;
+	case 1:
+		snprintf(buf, 80, "Virtual modem, sockfd:%d",
+			(int)g_scc[port].sockfd);
+		str = buf;
+		break;
+	case 2:
+		snprintf(buf, 80, "Outgoing to %s:%d",
+			g_serial_remote_ip[port], g_serial_remote_port[port]);
+		str = buf;
+		break;
+	case 3:
+		snprintf(buf, 80, "Opened %d, sockfd:%d", 6501 + port,
+					(int)g_scc[port].sockfd);
+		str = buf;
+		break;
+	default:
+		str = "Open failed, port is closed";
+	}
+	return kegs_malloc_str(str);
+}
+
+
+void
+scc_config_changed(int port, int cfg_changed, int remote_changed,
+						int serial_dev_changed)
+{
+	Scc	*scc_ptr;
+	int	must_change;
+
+	// Check if scc_init() was called, if not get out
+	if(!g_scc_init) {
+		return;
+	}
+
+	// F4 may have changed the serial port config.  If so, close old
+	//  port, open new one.
+
+	scc_ptr = &(g_scc[port]);
+	must_change = cfg_changed;
+	switch(scc_ptr->cur_state) {
+	case 0:		// Using serial port
+		must_change |= serial_dev_changed;
+		break;
+	case 2:		// Using remote connection
+		must_change |= remote_changed;
+		break;
+	}
+	if(must_change) {
+		scc_port_close(port);
+	}
+}
+
+void
+scc_update(dword64 dfcyc)
+{
+	int	i;
+
+	// called each VBL update
+	for(i = 0; i < 2; i++) {
+		g_scc[i].write_called_this_vbl = 0;
+		g_scc[i].read_called_this_vbl = 0;
+
+		// These calls will try to open the port if it's closed
+		scc_try_to_empty_writebuf(dfcyc, i);
+		scc_try_fill_readbuf(dfcyc, i);
+
+		g_scc[i].write_called_this_vbl = 0;
+		g_scc[i].read_called_this_vbl = 0;
+	}
+}
+
+void
+scc_try_to_empty_writebuf(dword64 dfcyc, int port)
+{
+	Scc	*scc_ptr;
+	int	cur_state;
+
+	scc_ptr = &(g_scc[port]);
+	cur_state = scc_ptr->cur_state;
 	if(scc_ptr->write_called_this_vbl) {
 		return;
+	}
+	if(scc_is_port_closed(dfcyc, port)) {
+		return;				// Port is not open
 	}
 
 	scc_ptr->write_called_this_vbl = 1;
 
-	if(state == 2) {
-#if defined(MAC)
-		scc_serial_mac_empty_writebuf(port);
-#endif
+	if(cur_state == 0) {
 #if defined(_WIN32)
 		scc_serial_win_empty_writebuf(port);
+#else
+		scc_serial_unix_empty_writebuf(port);
 #endif
-	} else if(state == 1) {
-		scc_socket_empty_writebuf(port, dfcyc);
+	} else if(cur_state >= 1) {
+		scc_socket_empty_writebuf(dfcyc, port);
 	}
 }
 
 void
-scc_try_fill_readbuf(int port, dword64 dfcyc)
+scc_try_fill_readbuf(dword64 dfcyc, int port)
 {
 	Scc	*scc_ptr;
-	int	space_used, space_left;
-	int	state;
+	int	space_used, space_left, cur_state;
 
 	scc_ptr = &(g_scc[port]);
-	state = scc_ptr->state;
 
 	space_used = scc_ptr->in_wrptr - scc_ptr->in_rdptr;
 	if(space_used < 0) {
@@ -368,6 +505,10 @@ scc_try_fill_readbuf(int port, dword64 dfcyc)
 		return;
 	}
 
+	if(scc_is_port_closed(dfcyc, port)) {
+		return;				// Port is not open
+	}
+
 #if 0
 	if(scc_ptr->read_called_this_vbl) {
 		return;
@@ -376,40 +517,20 @@ scc_try_fill_readbuf(int port, dword64 dfcyc)
 
 	scc_ptr->read_called_this_vbl = 1;
 
-	if(state == 2) {
-#if defined(MAC)
-		scc_serial_mac_fill_readbuf(port, space_left, dfcyc);
-#endif
+	cur_state = scc_ptr->cur_state;
+	if(cur_state == 0) {
 #if defined(_WIN32)
-		scc_serial_win_fill_readbuf(port, space_left, dfcyc);
+		scc_serial_win_fill_readbuf(dfcyc, port, space_left);
+#else
+		scc_serial_unix_fill_readbuf(dfcyc, port, space_left);
 #endif
-	} else if(state == 1) {
-		scc_socket_fill_readbuf(port, space_left, dfcyc);
+	} else if(cur_state >= 1) {
+		scc_socket_fill_readbuf(dfcyc, port, space_left);
 	}
 }
 
 void
-scc_update(dword64 dfcyc)
-{
-	/* called each VBL update */
-	g_scc[0].write_called_this_vbl = 0;
-	g_scc[1].write_called_this_vbl = 0;
-	g_scc[0].read_called_this_vbl = 0;
-	g_scc[1].read_called_this_vbl = 0;
-
-	scc_try_to_empty_writebuf(0, dfcyc);
-	scc_try_to_empty_writebuf(1, dfcyc);
-	scc_try_fill_readbuf(0, dfcyc);
-	scc_try_fill_readbuf(1, dfcyc);
-
-	g_scc[0].write_called_this_vbl = 0;
-	g_scc[1].write_called_this_vbl = 0;
-	g_scc[0].read_called_this_vbl = 0;
-	g_scc[1].read_called_this_vbl = 0;
-}
-
-void
-do_scc_event(int type, dword64 dfcyc)
+scc_do_event(dword64 dfcyc, int type)
 {
 	Scc	*scc_ptr;
 	int	port;
@@ -422,16 +543,16 @@ do_scc_event(int type, dword64 dfcyc)
 		/* baud rate generator counted down to 0 */
 		scc_ptr->br_event_pending = 0;
 		scc_set_zerocnt_int(port);
-		scc_maybe_br_event(port, dfcyc);
+		scc_maybe_br_event(dfcyc, port);
 	} else if(type == SCC_TX_EVENT) {
 		scc_ptr->tx_event_pending = 0;
 		scc_ptr->tx_buf_empty = 1;
 		scc_handle_tx_event(port);
 	} else if(type == SCC_RX_EVENT) {
 		scc_ptr->rx_event_pending = 0;
-		scc_maybe_rx_event(port, dfcyc);
+		scc_maybe_rx_event(dfcyc, port);
 	} else {
-		halt_printf("do_scc_event: %08x!\n", type);
+		halt_printf("scc_do_event: %08x!\n", type);
 	}
 	return;
 }
@@ -450,10 +571,10 @@ show_scc_state()
 				scc_ptr->reg[j], scc_ptr->reg[j+1],
 				scc_ptr->reg[j+2], scc_ptr->reg[j+3]);
 		}
-		printf("state: %d, accfd: %d, rdwrfd:%llx, host:%p, host2:%p\n",
-			scc_ptr->state, scc_ptr->accfd,
-			(dword64)scc_ptr->rdwrfd, scc_ptr->host_handle,
-			scc_ptr->host_handle2);
+		printf("state: %d, sockfd:%llx rdwrfd:%llx, win_com:%p, "
+			"win_dcb:%p\n", scc_ptr->cur_state,
+			(dword64)scc_ptr->sockfd, (dword64)scc_ptr->rdwrfd,
+			scc_ptr->win_com_handle, scc_ptr->win_dcb_ptr);
 		printf("in_rdptr: %04x, in_wr:%04x, out_rd:%04x, out_wr:%04x\n",
 			scc_ptr->in_rdptr, scc_ptr->in_wrptr,
 			scc_ptr->out_rdptr, scc_ptr->out_wrptr);
@@ -474,8 +595,8 @@ show_scc_state()
 		printf("char_size: %d, baud_rate: %d, mode: %d\n",
 			scc_ptr->char_size, scc_ptr->baud_rate,
 			scc_ptr->mode);
-		printf("modem_dial_mode:%d, telnet_mode:%d iac:%d, "
-			"modem_cmd_len:%d\n", scc_ptr->modem_dial_or_acc_mode,
+		printf("modem_state: %dtelnet_mode:%d iac:%d, "
+			"modem_cmd_len:%d\n", scc_ptr->modem_state,
 			scc_ptr->telnet_mode, scc_ptr->telnet_iac,
 			scc_ptr->modem_cmd_len);
 		printf("telnet_loc_modes:%08x %08x, telnet_rem_motes:"
@@ -491,7 +612,7 @@ show_scc_state()
 }
 
 word32
-scc_read_reg(int port, dword64 dfcyc)
+scc_read_reg(dword64 dfcyc, int port)
 {
 	Scc	*scc_ptr;
 	word32	ret;
@@ -531,20 +652,15 @@ scc_read_reg(int port, dword64 dfcyc)
 	case 6:
 		if(port == 0) {
 			ret = scc_ptr->reg[2];
-		} else {
-
-			halt_printf("Read of RR2B...stopping\n");
-			ret = 0;
-#if 0
-			ret = g_scc[0].reg[2];
-			wr9 = g_scc[0].reg[9];
-			for(i = 0; i < 8; i++) {
-				if(ZZZ){};
+		} else {			// Port B, read RR2B int stat
+			// The TELNET.SYSTEM by Colin Leroy-Mira uses RR2B
+			ret = scc_do_read_rr2b() << 1;
+			if(g_scc[0].reg[9] & 0x10) {	// wr9 status high
+				// Map bit 3->4, 2->5, 1->6
+				ret = ((ret << 1) & 0x10) |
+					((ret << 3) & 0x20) |
+					((ret << 5) & 0x40);
 			}
-			if(wr9 & 0x10) {
-				/* wr9 status high */
-			}
-#endif
 		}
 		break;
 	case 3:
@@ -556,7 +672,7 @@ scc_read_reg(int port, dword64 dfcyc)
 		}
 		break;
 	case 8:
-		ret = scc_read_data(port, dfcyc);
+		ret = scc_read_data(dfcyc, port);
 		break;
 	case 9:
 	case 13:
@@ -587,7 +703,7 @@ scc_read_reg(int port, dword64 dfcyc)
 }
 
 void
-scc_write_reg(int port, word32 val, dword64 dfcyc)
+scc_write_reg(dword64 dfcyc, int port, word32 val)
 {
 	Scc	*scc_ptr;
 	word32	old_val, changed_bits, irq_mask;
@@ -709,7 +825,7 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 		scc_ptr->reg[regnum] = val;
 		return;
 	case 8: /* wr8 */
-		scc_write_data(port, val, dfcyc);
+		scc_write_data(dfcyc, port, val);
 		return;
 	case 9: /* wr9 */
 		if((val & 0xc0)) {
@@ -724,12 +840,10 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 				scc_hard_reset_port(1);
 			}
 		}
-		if((val & 0x35) != 0x00) {
-			printf("Write c03%x to wr9 of %02x!\n", 8+port, val);
-			halt_printf("val & 0x35: %02x\n", (val & 0x35));
-		}
+		// Bit 5 is software interrupt ack, which does not exist on NMOS
+		// Bit 2 sets IEO pin low, which doesn't exist either
 		old_val = g_scc[0].reg[9];
-		g_scc[0].reg[regnum] = val;
+		g_scc[0].reg[9] = val;
 		scc_evaluate_ints(0);
 		scc_evaluate_ints(1);
 		return;
@@ -780,7 +894,7 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 		if(changed_bits) {
 			scc_regen_clocks(port);
 		}
-		scc_maybe_br_event(port, dfcyc);
+		scc_maybe_br_event(dfcyc, port);
 		return;
 	case 15: /* wr15 */
 		/* ignore all accesses since IIgs self test messes with it */
@@ -793,7 +907,7 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 			/* set_halt(1); */
 		}
 		scc_ptr->reg[regnum] = val;
-		scc_maybe_br_event(port, dfcyc);
+		scc_maybe_br_event(dfcyc, port);
 		scc_evaluate_ints(port);
 		return;
 	default:
@@ -802,8 +916,94 @@ scc_write_reg(int port, word32 val, dword64 dfcyc)
 	}
 }
 
+// scc_read_data: Read from 0xc03b or 0xc03a
+word32
+scc_read_data(dword64 dfcyc, int port)
+{
+	Scc	*scc_ptr;
+	word32	ret;
+	int	depth;
+	int	i;
+
+	scc_ptr = &(g_scc[port]);
+
+	scc_try_fill_readbuf(dfcyc, port);
+
+	depth = scc_ptr->rx_queue_depth;
+
+	ret = 0;
+	if(depth != 0) {
+		ret = scc_ptr->rx_queue[0];
+		for(i = 1; i < depth; i++) {
+			scc_ptr->rx_queue[i-1] = scc_ptr->rx_queue[i];
+		}
+		scc_ptr->rx_queue_depth = depth - 1;
+		scc_maybe_rx_event(dfcyc, port);
+		scc_maybe_rx_int(port);
+	}
+
+	scc_printf("SCC read %04x: ret %02x, depth:%d\n", 0xc03b-port, ret,
+			depth);
+
+	dbg_log_info(dfcyc, 0, ret, 0xc03b - port);
+
+	return ret;
+}
+
 void
-scc_maybe_br_event(int port, dword64 dfcyc)
+scc_write_data(dword64 dfcyc, int port, word32 val)
+{
+	Scc	*scc_ptr;
+
+	scc_printf("SCC write %04x: %02x\n", 0xc03b-port, val);
+	dbg_log_info(dfcyc, val, 0, 0x1c03b - port);
+
+	scc_ptr = &(g_scc[port]);
+	if(scc_ptr->reg[14] & 0x10) {
+		/* local loopback! */
+		scc_add_to_readbuf(dfcyc, port, val);
+	} else {
+		scc_transmit(dfcyc, port, val);
+	}
+	scc_try_to_empty_writebuf(dfcyc, port);
+
+	scc_maybe_tx_event(dfcyc, port);
+}
+
+word32
+scc_do_read_rr2b()
+{
+	word32	val;
+
+	val = g_irq_pending & 0x3f;
+	if(val == 0) {
+		return 3;	// 011 if no interrupts pending
+	}
+	// Do Channel A first.  Priority order from SCC documentation
+	if(val & IRQ_PENDING_SCC0_RX) {
+		return 6;	// 110 Ch A Rx char available
+	}
+	if(val & IRQ_PENDING_SCC0_TX) {
+		return 4;	// 100 Ch A Tx buffer empty
+	}
+	if(val & IRQ_PENDING_SCC0_ZEROCNT) {
+		return 5;	// 101 Ch A External/Status change
+	}
+	if(val & IRQ_PENDING_SCC1_RX) {
+		return 2;	// 010 Ch B Rx char available
+	}
+	if(val & IRQ_PENDING_SCC1_TX) {
+		return 0;	// 000 Ch B Tx buffer empty
+	}
+	if(val & IRQ_PENDING_SCC1_ZEROCNT) {
+		return 1;	// 001 Ch B External/Status change
+	}
+
+	return 3;
+}
+
+void
+scc_maybe_br_event(dword64 dfcyc, int port)
 {
 	Scc	*scc_ptr;
 	double	br_dcycs;
@@ -878,12 +1078,11 @@ scc_evaluate_ints(int port)
 }
 
 void
-scc_maybe_rx_event(int port, dword64 dfcyc)
+scc_maybe_rx_event(dword64 dfcyc, int port)
 {
 	Scc	*scc_ptr;
 	double	rx_dcycs;
-	int	in_rdptr, in_wrptr;
-	int	depth;
+	int	in_rdptr, in_wrptr, depth;
 
 	scc_ptr = &(g_scc[port]);
 
@@ -961,7 +1160,7 @@ scc_handle_tx_event(int port)
 }
 
 void
-scc_maybe_tx_event(int port, dword64 dfcyc)
+scc_maybe_tx_event(dword64 dfcyc, int port)
 {
 	Scc	*scc_ptr;
 	double	tx_dcycs;
@@ -1009,7 +1208,7 @@ scc_clr_zerocnt_int(int port)
 }
 
 void
-scc_add_to_readbuf(int port, word32 val, dword64 dfcyc)
+scc_add_to_readbuf(dword64 dfcyc, int port, word32 val)
 {
 	Scc	*scc_ptr;
 	int	in_wrptr;
@@ -1018,6 +1217,9 @@ scc_add_to_readbuf(int port, word32 val, dword64 dfcyc)
 
 	scc_ptr = &(g_scc[port]);
 
+	if((scc_ptr->reg[5] & 0x60) != 0x60) {	// HACK: this is tx char size!
+		val = val & 0x7f;
+	}
 	in_wrptr = scc_ptr->in_wrptr;
 	in_rdptr = scc_ptr->in_rdptr;
 	in_wrptr_next = (in_wrptr + 1) & (SCC_INBUF_SIZE - 1);
@@ -1025,8 +1227,7 @@ scc_add_to_readbuf(int port, word32 val, dword64 dfcyc)
 		scc_ptr->in_buf[in_wrptr] = val;
 		scc_ptr->in_wrptr = in_wrptr_next;
 		scc_printf("scc in port[%d] add char 0x%02x, %d,%d != %d\n",
-				scc_ptr->port, val,
-				in_wrptr, in_wrptr_next, in_rdptr);
+				port, val, in_wrptr, in_wrptr_next, in_rdptr);
 		g_scc_overflow = 0;
 	} else {
 		if(g_scc_overflow == 0) {
@@ -1036,11 +1237,11 @@ scc_add_to_readbuf(int port, word32 val, dword64 dfcyc)
 		g_scc_overflow = 1;
 	}
 
-	scc_maybe_rx_event(port, dfcyc);
+	scc_maybe_rx_event(dfcyc, port);
 }
 
 void
-scc_add_to_readbufv(int port, dword64 dfcyc, const char *fmt, ...)
+scc_add_to_readbufv(dword64 dfcyc, int port, const char *fmt, ...)
 {
 	va_list	ap;
 	char	*bufptr;
@@ -1055,15 +1256,15 @@ scc_add_to_readbufv(int port, dword64 dfcyc, const char *fmt, ...)
 	for(i = 0; i < len; i++) {
 		c = bufptr[i];
 		if(c == 0x0a) {
-			scc_add_to_readbuf(port, 0x0d, dfcyc);
+			scc_add_to_readbuf(dfcyc, port, 0x0d);
 		}
-		scc_add_to_readbuf(port, c, dfcyc);
+		scc_add_to_readbuf(dfcyc, port, c);
 	}
 	va_end(ap);
 }
 
 void
-scc_transmit(int port, word32 val)
+scc_transmit(dword64 dfcyc, int port, word32 val)
 {
 	Scc	*scc_ptr;
 	int	out_wrptr;
@@ -1071,15 +1272,13 @@ scc_transmit(int port, word32 val)
 
 	scc_ptr = &(g_scc[port]);
 
+	// printf("scc_transmit port:%d val:%02x\n", port, val);
 	/* See if port initialized, if not, do so now */
-	if(scc_ptr->state == 0) {
-		scc_port_init(port);
+	if(scc_is_port_closed(dfcyc, port)) {
+		printf("  port %d is closed, cur_state:%d\n", port,
+				scc_ptr->cur_state);
+		return;		// No working serial port, just toss it and go
 	}
-	if(scc_ptr->state < 0) {
-		/* No working serial port, just toss it and go */
-		return;
-	}
-
 	if(!scc_ptr->tx_buf_empty) {
 		/* toss character! */
 		printf("Tossing char\n");
@@ -1095,31 +1294,24 @@ scc_transmit(int port, word32 val)
 			return;
 		}
 	}
-	if(g_serial_out_masking) {
+	if(g_serial_mask[port] || (scc_ptr->reg[5] & 0x60) != 0x60) {
 		val = val & 0x7f;
 	}
 
-	scc_add_to_writebuf(port, val);
+	scc_add_to_writebuf(dfcyc, port, val);
 }
 
 void
-scc_add_to_writebuf(int port, word32 val)
+scc_add_to_writebuf(dword64 dfcyc, int port, word32 val)
 {
 	Scc	*scc_ptr;
-	int	out_wrptr;
-	int	out_wrptr_next;
-	int	out_rdptr;
+	int	out_wrptr, out_wrptr_next, out_rdptr;
 
+	// printf("scc_add_to_writebuf p:%d, val:%02x\n", port, val);
+	if(scc_is_port_closed(dfcyc, port)) {
+		return;			// Port is closed
+	}
 	scc_ptr = &(g_scc[port]);
-
-	/* See if port initialized, if not, do so now */
-	if(scc_ptr->state == 0) {
-		scc_port_init(port);
-	}
-	if(scc_ptr->state < 0) {
-		/* No working serial port, just toss it and go */
-		return;
-	}
 
 	out_wrptr = scc_ptr->out_wrptr;
 	out_rdptr = scc_ptr->out_rdptr;
@@ -1129,7 +1321,7 @@ scc_add_to_writebuf(int port, word32 val)
 		scc_ptr->out_buf[out_wrptr] = val;
 		scc_ptr->out_wrptr = out_wrptr_next;
 		scc_printf("scc wrbuf port %d had char 0x%02x added\n",
-			scc_ptr->port, val);
+			port, val);
 		g_scc_overflow = 0;
 	} else {
 		if(g_scc_overflow == 0) {
@@ -1138,58 +1330,5 @@ scc_add_to_writebuf(int port, word32 val)
 		}
 		g_scc_overflow = 1;
 	}
-}
-
-word32
-scc_read_data(int port, dword64 dfcyc)
-{
-	Scc	*scc_ptr;
-	word32	ret;
-	int	depth;
-	int	i;
-
-	scc_ptr = &(g_scc[port]);
-
-	scc_try_fill_readbuf(port, dfcyc);
-
-	depth = scc_ptr->rx_queue_depth;
-
-	ret = 0;
-	if(depth != 0) {
-		ret = scc_ptr->rx_queue[0];
-		for(i = 1; i < depth; i++) {
-			scc_ptr->rx_queue[i-1] = scc_ptr->rx_queue[i];
-		}
-		scc_ptr->rx_queue_depth = depth - 1;
-		scc_maybe_rx_event(port, dfcyc);
-		scc_maybe_rx_int(port);
-	}
-
-	scc_printf("SCC read %04x: ret %02x, depth:%d\n", 0xc03b-port, ret,
-			depth);
-
-	dbg_log_info(dfcyc, 0, ret, 0xc03b - port);
-
-	return ret;
-}
-
-void
-scc_write_data(int port, word32 val, dword64 dfcyc)
-{
-	Scc	*scc_ptr;
-
-	scc_printf("SCC write %04x: %02x\n", 0xc03b-port, val);
-	dbg_log_info(dfcyc, val, 0, 0x1c03b - port);
-
-	scc_ptr = &(g_scc[port]);
-	if(scc_ptr->reg[14] & 0x10) {
-		/* local loopback! */
-		scc_add_to_readbuf(port, val, dfcyc);
-	} else {
-		scc_transmit(port, val);
-	}
-	scc_try_to_empty_writebuf(port, dfcyc);
-
-	scc_maybe_tx_event(port, dfcyc);
 }
 

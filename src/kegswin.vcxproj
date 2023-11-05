@@ -126,7 +126,7 @@
     <ClCompile Include="moremem.c" />
     <ClCompile Include="paddles.c" />
     <ClCompile Include="scc.c" />
-    <ClCompile Include="scc_macdriver.c" />
+    <ClCompile Include="scc_unixdriver.c" />
     <ClCompile Include="scc_socket_driver.c" />
     <ClCompile Include="scc_windriver.c" />
     <ClCompile Include="sim65816.c" />

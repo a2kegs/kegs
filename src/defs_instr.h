@@ -1,4 +1,4 @@
-// $KmKId: defs_instr.h,v 1.66 2023-06-21 21:09:42+00 kentd Exp $
+// $KmKId: defs_instr.h,v 1.67 2023-09-11 12:35:25+00 kentd Exp $
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -61,15 +61,27 @@
 #endif
 
 #undef GET_DLOC_RD_RMW
+#undef GET_MEM_RMW
+
+#define GET_MEM_RMW()						\
+	if(!IS_ACC16) {						\
+		if(psr & 0x100) {				\
+			/* emulation re-writes the address */	\
+			SET_MEMORY8(addr_latch, arg);		\
+		} else {					\
+			/* otherwise, just read addr again */	\
+			GET_MEMORY8(addr_latch, dummy1);	\
+		}						\
+	} else {						\
+		/* 16-bit re-reads addr+1 again */		\
+		GET_MEMORY8(addr_latch + 1, dummy1);		\
+		addr_latch--;					\
+	}
 
 #define GET_DLOC_RD_RMW()			\
-	GET_1BYTE_ARG;				\
-	if(direct & 0xff) {			\
-		CYCLES_PLUS_1;			\
-	}					\
-	INC_KPC_2;				\
-	GET_MEMORY16((direct + arg) & 0xffff, arg, 1);
-		// Doing GET_MEMORY16 does the false read properly for 8-bit
+	GET_DLOC_RD();				\
+	GET_MEM_RMW();
+
 
 #undef GET_DLOC_L_IND_RD
 
@@ -117,10 +129,8 @@
 #undef GET_ABS_RD_RMW
 
 #define GET_ABS_RD_RMW()			\
-	GET_2BYTE_ARG;				\
-	CYCLES_PLUS_1;				\
-	GET_MEMORY16((dbank << 16) + arg, arg, 0); \
-	INC_KPC_3;
+	GET_ABS_RD();				\
+	GET_MEM_RMW();
 
 #undef GET_LONG_RD
 
@@ -215,7 +225,7 @@
 	}								\
 	INC_KPC_2;							\
 	arg = (arg + xreg + direct) & 0xffff;				\
-	if(psr & 0x100) {						\
+	if(!IS_ACC16 && (psr & 0x100)) {				\
 		if((direct & 0xff) == 0) {				\
 			arg = (direct & 0xff00) | (arg & 0xff);		\
 		}							\
@@ -226,19 +236,8 @@
 #undef GET_DLOC_X_RD_RMW
 
 #define GET_DLOC_X_RD_RMW()						\
-	GET_1BYTE_ARG;							\
-	if(direct & 0xff) {						\
-		CYCLES_PLUS_1;						\
-	}								\
-	INC_KPC_2;							\
-	arg = (arg + xreg + direct) & 0xffff;				\
-	if(psr & 0x100) {						\
-		if((direct & 0xff) == 0) {				\
-			arg = (direct & 0xff00) | (arg & 0xff);		\
-		}							\
-	}								\
-	GET_MEMORY16(arg, arg, 1);
-		// GET_MEMORY16 does the false read properly for 8-bit access
+	GET_DLOC_X_RD();						\
+	GET_MEM_RMW();
 
 
 #undef GET_DISP8_S_IND_Y_RD
@@ -303,19 +302,19 @@
 # define GET_ABS_X_RD()					\
 	GET_ABS_INDEX_ADDR(xreg, 0);			\
 	GET_MEMORY8(arg, arg);
+#define GET_ABS_X_RD_RMW()				\
+	GET_ABS_INDEX_ADDR(xreg, 1);			\
+	GET_MEMORY8(arg, arg);				\
+	GET_MEM_RMW();
 #else
 # define GET_ABS_X_RD()					\
 	GET_ABS_INDEX_ADDR(xreg, 0);			\
 	GET_MEMORY16(arg, arg, 0);
+#define GET_ABS_X_RD_RMW()				\
+	GET_ABS_INDEX_ADDR(xreg, 1);			\
+	GET_MEMORY16(arg, arg, 0);			\
+	GET_MEM_RMW();
 #endif
-
-#define GET_ABS_X_RD_RMW()					\
-	GET_2BYTE_ARG;						\
-	INC_KPC_3;						\
-	CYCLES_PLUS_2;						\
-	arg = (dbank << 16) + ((arg + xreg) & 0xffff);		\
-	GET_MEMORY16(arg, arg, 0);
-		// GET_MEMORY16 does false read properly for 8-bit accesses
 
 #undef GET_LONG_X_RD
 
@@ -509,7 +508,6 @@
 # define TSB_INST(in_bank)			\
 	tmp1 = arg | acc;			\
 	zero = arg & acc;			\
-	CYCLES_PLUS_1;				\
 	SET_MEMORY16(addr_latch, tmp1, in_bank);
 		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
 #endif
@@ -526,7 +524,6 @@
 # define ASL_INST(in_bank)			\
 	psr = (psr & 0x1fe) + ((arg >> 15) & 1);\
 	tmp1 = (arg << 1) & 0xffff;		\
-	CYCLES_PLUS_1;				\
 	SET_NEG_ZERO16(tmp1);			\
 	SET_MEMORY16(addr_latch, tmp1, in_bank);
 		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
@@ -545,7 +542,6 @@
 # define ROL_INST(in_bank)			\
 	arg = (arg << 1) | (psr & 1);		\
 	SET_MEMORY16(addr_latch, arg, in_bank);	\
-	CYCLES_PLUS_1;				\
 	SET_NEG_ZERO16(arg & 0xffff);		\
 	SET_CARRY16(arg);
 		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
@@ -563,7 +559,6 @@
 # define LSR_INST(in_bank)				\
 	SET_CARRY16(arg << 16);				\
 	arg = (arg >> 1) & 0x7fff;			\
-	CYCLES_PLUS_1;					\
 	SET_NEG_ZERO16(arg);				\
 	SET_MEMORY16(addr_latch, arg, in_bank);
 		// Should be a false read to addr_latch+1, not CYCLES_PLUS_1
@@ -584,7 +579,6 @@
 	SET_CARRY16(arg << 16);				\
 	arg = ((arg >> 1) & 0x7fff) | (tmp1 << 15);	\
 	SET_MEMORY16(addr_latch, arg, in_bank);		\
-	CYCLES_PLUS_1;					\
 	SET_NEG_ZERO16(arg);
 #endif
 
@@ -599,7 +593,6 @@
 #else
 # define TRB_INST(in_bank)			\
 	tmp1 = arg & ~acc;			\
-	CYCLES_PLUS_1;				\
 	zero = arg & acc;			\
 	SET_MEMORY16(addr_latch, tmp1, in_bank);
 #endif
@@ -613,7 +606,6 @@
 	SET_NEG_ZERO8(arg);
 #else
 # define DEC_INST(in_bank)			\
-	CYCLES_PLUS_1;				\
 	arg = (arg - 1) & 0xffff;		\
 	SET_MEMORY16(addr_latch, arg, in_bank);	\
 	SET_NEG_ZERO16(arg);
@@ -628,7 +620,6 @@
 	SET_NEG_ZERO8(arg);
 #else
 # define INC_INST(in_bank)			\
-	CYCLES_PLUS_1;				\
 	arg = (arg + 1) & 0xffff;		\
 	SET_MEMORY16(addr_latch, arg, in_bank);	\
 	SET_NEG_ZERO16(arg);

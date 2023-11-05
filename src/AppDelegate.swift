@@ -23,6 +23,10 @@ class Window_info {
 	var app_delegate : AppDelegate! = nil
 	var mac_a2_height : Int = 0
 
+//	init(_ new_is_main: Bool) {
+//		is_main = new_is_main
+//	}
+
 	func set_kimage(_ kimage_ptr : UnsafeMutablePointer<Kimage>!,
 				title: String, delegate: AppDelegate!) {
 		self.kimage_ptr = kimage_ptr
@@ -70,7 +74,6 @@ class Window_info {
 		mac_view = view
 		mac_a2_height = height;
 		window.makeKey()
-		NSApp.activate(ignoringOtherApps: true)
 	}
 
 	func update() {
@@ -106,7 +109,6 @@ class Window_info {
 			}
 		}
 	}
-
 	func mac_resize_window() {
 		let a2_height = Int(video_get_a2_height(kimage_ptr))
 		let a2_width = Int(video_get_a2_width(kimage_ptr))
@@ -145,30 +147,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		}
 		return debugwin_info
 	}
-
-	@objc func showAboutDialog(_:AnyObject) {
-		let alert = NSAlert()
-		alert.messageText = "About Kegs"
-		let aboutText = """
-		KEGS is an Apple IIgs emulator for Mac, Linux, and Windows.
-
-		You must provide a system ROM file (ROM01 or ROM03), and bootable disk image(s).
-
-
-		Press F4 to change emulator options.
-
-		Copyright ©2019-2023 Kent Dickey
-
-		https://kegs.sourceforge.net/
-		https://github.com/a2kegs/kegs
-
-		"""
-
-		alert.informativeText = aboutText
-		alert.addButton(withTitle: "OK")
-		alert.runModal()
+	@objc func do_about(_:AnyObject) {
+		print("About")
 	}
-
 	func applicationDidFinishLaunching(_ aNotification: Notification) {
 		// This is your first real entry point into the app
 		print("start!")
@@ -185,7 +166,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		// Application will close if main window is closed
 		return true
 	}
-
 	func windowDidBecomeKey(_ notification: Notification) {
 		if let w = notification.object as? NSWindow {
 			if(w == mainwin_info.x_win) {
@@ -193,11 +173,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 				//print("Main window became KEY")
 			}
 		}
+		//print("DidbecomeKey")
 		// If window focus is changing, turn off key repeat
 		adb_kbd_repeat_off()
 	}
-
 	func windowDidResignKey(_ notification: Notification) {
+		//print("DidResignKey")
 		adb_kbd_repeat_off()
 		adb_mainwin_focus(Int32(0))
 		CGDisplayShowCursor(CGMainDisplayID())
@@ -212,7 +193,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		win_info.update_window_size(width: width, height: height)
 		return frameSize
 	}
-
 	func windowShouldClose(_ window: NSWindow) -> Bool {
 		print("windowShouldClose")
 		let win_info = find_win_info(window)
@@ -237,7 +217,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 			print("Installing my menu now")
 			let kegs = NSMenu(title: appname)
 			kegs.addItem(withTitle: "About \(appname)",
-				action: #selector(AppDelegate.showAboutDialog(_:)),
+				action: #selector(AppDelegate.do_about(_:)),
 				keyEquivalent: "")
 			kegs.addItem(NSMenuItem.separator())
 			let quit_item = NSMenuItem(title: "Quit \(appname)",
@@ -297,8 +277,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 			}
 		}
 	}
-
-
 
 	var mainWindow : NSWindow!
 	var mainwin_view : MainView!

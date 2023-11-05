@@ -7,7 +7,7 @@ debugger.o: debugger.c defc.h defcomm.h iwm.h protos.h protos_base.h disas.h
 scc.o: scc.c defc.h defcomm.h iwm.h protos.h protos_base.h scc.h
 scc_socket_driver.o: scc_socket_driver.c defc.h defcomm.h iwm.h protos.h protos_base.h scc.h
 scc_windriver.o: scc_windriver.c defc.h defcomm.h iwm.h protos.h protos_base.h scc.h
-scc_macdriver.o: scc_macdriver.c defc.h defcomm.h iwm.h protos.h protos_base.h scc.h
+scc_unixdriver.o: scc_unixdriver.c defc.h defcomm.h iwm.h protos.h protos_base.h scc.h
 iwm.o: iwm.c defc.h defcomm.h iwm.h protos.h protos_base.h
 joystick_driver.o: joystick_driver.c defc.h defcomm.h iwm.h protos.h protos_base.h
 moremem.o: moremem.c defc.h defcomm.h iwm.h protos.h protos_base.h

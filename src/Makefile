@@ -34,21 +34,18 @@ kegsmac: $(OBJECTS) $(OBJECTS1) compile_time.o $(SWIFTOBJS)
 		-Xlinker -no_deduplicate -fobjc-link-runtime \
 		-L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx \
 		-L/usr/lib/swift
-	mkdir -p ../Kegs.app/Contents/Resources/
-	mkdir -p ../Kegs.app/Contents/MacOS
-	mkdir -p ../Kegs.app/Contents/Frameworks
-	$(PERL) cp_kegs_libs kegsmac /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx ../Kegs.app/Contents/Frameworks
-	mv kegsmac ../Kegs.app/Contents/MacOS/kegs
-	echo "APPL????" > ../Kegs.app/Contents/PkgInfo
-	cp -f Info.plist ../Kegs.app/Contents/
-	cp -f $(PROJROOT)/lib/MainMenu.nib ../Kegs.app/Contents/Resources/
-	cp -f $(PROJROOT)/lib/kegsiconalt.icns ../Kegs.app/Contents/Resources/kegsicon.icns
-	## UNCOMMENT this to use the original kegs icon
-	## cp -f $(PROJROOT)/lib/kegsicon.icns ../Kegs.app/Contents/Resources/
-	
-	#cp -f $(PROJROOT)/lib/2mg.icns ../Kegs.app/Contents/Resources/
-	#cp -f $(PROJROOT)/lib/525.icns ../Kegs.app/Contents/Resources/
-	#touch '../Kegs.app/Icon?'
+	mkdir -p ../KEGSMAC.app/Contents/Resources/Base.lproj/
+	mkdir -p ../KEGSMAC.app/Contents/MacOS
+	mkdir -p ../KEGSMAC.app/Contents/Frameworks
+	$(PERL) cp_kegs_libs kegsmac /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx ../KEGSMAC.app/Contents/Frameworks
+	mv kegsmac ../KEGSMAC.app/Contents/MacOS/KEGSMAC
+	echo "APPL????" > ../KEGSMAC.app/Contents/PkgInfo
+	cp -f Info.plist ../KEGSMAC.app/Contents/
+	cp -f $(PROJROOT)/lib/MainMenu.nib ../KEGSMAC.app/Contents/Resources/Base.lproj/
+	#cp -f $(PROJROOT)/lib/kegsicon.icns ../KEGSMAC.app/Contents/Resources/
+	#cp -f $(PROJROOT)/lib/2mg.icns ../KEGSMAC.app/Contents/Resources/
+	#cp -f $(PROJROOT)/lib/525.icns ../KEGSMAC.app/Contents/Resources/
+	#touch '../KEGSMAC.app/Icon?'
 
 # Linux for X builds:
 xkegs: $(OBJECTS) $(OBJECTS1) compile_time.o

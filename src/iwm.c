@@ -1,4 +1,4 @@
-const char rcsid_iwm_c[] = "@(#)$KmKId: iwm.c,v 1.201 2023-05-19 13:52:54+00 kentd Exp $";
+const char rcsid_iwm_c[] = "@(#)$KmKId: iwm.c,v 1.206 2023-09-23 17:51:46+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -39,8 +39,8 @@ const char rcsid_iwm_c[] = "@(#)$KmKId: iwm.c,v 1.201 2023-05-19 13:52:54+00 ken
 int g_halt_arm_move = 0;
 
 extern int Verbose;
-extern int g_vbl_count;
-extern int g_c036_val_speed;
+extern word32 g_vbl_count;
+extern word32 g_c036_val_speed;
 extern int g_config_kegs_update_needed;
 extern Engine_reg engine;
 
@@ -281,7 +281,7 @@ void
 iwm_flush_disk_to_unix(Disk *dsk)
 {
 	byte	buffer[0x4000];
-	int	ret;
+	int	ret, did_write;
 	int	i;
 
 	if((dsk->disk_dirty == 0) || (dsk->write_through_to_unix == 0)) {
@@ -303,14 +303,20 @@ iwm_flush_disk_to_unix(Disk *dsk)
 			woz_reparse_woz(dsk);
 			return;		// Don't clear dsk->disk_dirty
 		}
+		if(ret == 1) {
+			did_write = 1;
+		}
 	}
-	dsk->disk_dirty = 0;
+	if(dsk->wozinfo_ptr && did_write) {
+		woz_check_file(dsk);
+	}
 
+	dsk->disk_dirty = 0;
 }
 
 /* Check for dirty disk 3 times a second */
 
-int	g_iwm_dynapro_last_vbl_count = 0;
+word32	g_iwm_dynapro_last_vbl_count = 0;
 
 void
 iwm_vbl_update()
@@ -599,7 +605,7 @@ iwm_touch_switches(int loc, dword64 dfcyc)
 					state, on);
 #endif
 				dbg_log_info(dfcyc, state, mask, 0xed);
-				iwm_write_end(dsk, dfcyc);
+				iwm_write_end(dsk, 1, dfcyc);
 				// printf("write end complete, the track:\n");
 				// iwm_check_nibblization(dfcyc);
 			}
@@ -628,8 +634,9 @@ void
 iwm_move_to_ftrack(Disk *dsk, word32 new_frac_track, int delta, dword64 dfcyc)
 {
 	Trk	*trkptr;
-	word32	track_bits, cur_frac_track;
+	word32	track_bits, cur_frac_track, wr_last_bit, write_val;
 	int	disk_525, drive, new_track, cur_track, max_track;
+	int	num_active_writes;
 
 	if(dsk->smartport) {
 		return;
@@ -665,6 +672,15 @@ iwm_move_to_ftrack(Disk *dsk, word32 new_frac_track, int delta, dword64 dfcyc)
 	new_track = (new_frac_track + 0x8000) >> 16;
 
 	cur_track = (cur_frac_track + 0x8000) >> 16;
+	num_active_writes = g_iwm.num_active_writes;
+	wr_last_bit = g_iwm.wr_last_bit[0];
+	write_val = g_iwm.write_val;
+	if(num_active_writes) {
+		iwm_write_end(dsk, 0, dfcyc);
+		printf("moving arm to new_track:%d, write active:%d, bit:%08x, "
+			"write_val:%02x\n", new_track, num_active_writes,
+			wr_last_bit, write_val);
+	}
 	if((cur_track != new_track) || (dsk->cur_trk_ptr == 0)) {
 		drive = dsk->drive + 1;
 		if(1) {
@@ -702,6 +718,9 @@ iwm_move_to_ftrack(Disk *dsk, word32 new_frac_track, int delta, dword64 dfcyc)
 		}
 	}
 	dsk->cur_frac_track = new_frac_track;
+	if(num_active_writes) {
+		iwm_start_write(dsk, wr_last_bit, write_val, 1);
+	}
 }
 
 void
@@ -723,22 +742,32 @@ iwm_move_to_qtr_track(Disk *dsk, word32 qtr_track)
 	dsk->cur_fbit_pos = fbit_pos;
 }
 
+dword64 g_iwm_last_phase_dfcyc = 0;
+
 void
 iwm525_update_phases(Disk *dsk, dword64 dfcyc)
 {
 	word32	ign_mask;
-	int	last_phases, new_phases, my_phase;
+	int	last_phases, new_phases, eff_last_phases, eff_new_phases;
+	int	my_phase;
 
 	// Decide if dsk->last_phases needs to change.
 	last_phases = dsk->last_phases;
 	new_phases = (g_iwm.state >> IWM_BIT_PHASES) & 0xf;
+	if(last_phases != new_phases) {
+		iwm_printf("Phases changing %02x -> %02x, ftrack:%08x at %lld, "
+			"diff:%.2fmsec\n", last_phases, new_phases,
+			dsk->cur_frac_track, dfcyc >> 16,
+			((dfcyc - g_iwm_last_phase_dfcyc) >> 16) / 1000.0);
+		g_iwm_last_phase_dfcyc = dfcyc;
+	}
 	my_phase = (dsk->cur_frac_track >> 17) & 3;
 	ign_mask = 1 << ((2 + my_phase) & 3);
-	last_phases &= (~ign_mask);
-	new_phases &= (~ign_mask);
-	if(last_phases == new_phases) {
-		// Nothing to do
-		return;
+	eff_last_phases = last_phases & (~ign_mask);
+	eff_new_phases = new_phases & (~ign_mask);
+	if(eff_last_phases == eff_new_phases) {
+		dsk->last_phases = new_phases;
+		return;				// Nothing to do
 	}
 
 	// Update last_phases
@@ -819,7 +848,7 @@ iwm525_update_head(Disk *dsk, dword64 dfcyc)
 		frac_track = sum / num;		// New desired track
 		// Now see if enough time has elapsed that we got to frac_track
 		diff_dusec = (dfcyc - dfcyc_last_phases) >> 16;
-		dinc = 0x20000 / 1500.0;	// 1.5msec to move one phase
+		dinc = 0x20000 / 2800.0;	// 2.8msec to move one phase
 		inc = (int)dinc;
 		if(cur_frac_track >= frac_track) {
 			diff = cur_frac_track - frac_track;
@@ -852,17 +881,20 @@ iwm525_update_head(Disk *dsk, dword64 dfcyc)
 		}
 
 		dbg_log_info(dfcyc, frac_track, dsk->cur_frac_track,
-							(phases << 16) | 0xe1);
+						(phases << 24) | 0x00e1);
 		iwm_move_to_ftrack(dsk, frac_track, 0, dfcyc);
 
 		if(new_qtrk > 2) {
 #if 0
 			printf("Moving to qtr track: %04x (trk:%d.%02d), %d, "
-				"%02x, %08x\n", new_qtrk, new_qtrk >> 2,
-				25*(new_qtrk & 3), my_phase, phases,
-				g_iwm.state);
+				"%02x, %08x dfcyc:%lld\n", new_qtrk,
+				new_qtrk >> 2, 25*(new_qtrk & 3), my_phase,
+				phases, g_iwm.state, dfcyc >> 16);
 #endif
 		}
+	} else {
+		// On the same qtr_track, but update the fraction
+		dsk->cur_frac_track = frac_track;
 	}
 
 #if 0
@@ -1746,7 +1778,7 @@ iwm_write_data(Disk *dsk, word32 val, dword64 dfcyc)
 		// printf("Starting write of data to the track, track now:\n");
 		// iwm_show_track(-1, -1, dfcyc);
 		// printf("Write data to track at bit*2:%06x\n", bit_pos);
-		iwm_start_write(dsk, bit_pos, val);
+		iwm_start_write(dsk, bit_pos, val, 0);
 		return;
 	}
 	if(track_bits == 0) {
@@ -1775,24 +1807,24 @@ iwm_write_data(Disk *dsk, word32 val, dword64 dfcyc)
 }
 
 void
-iwm_start_write(Disk *dsk, word32 bit_pos, word32 val)
+iwm_start_write(Disk *dsk, word32 bit_pos, word32 val, int no_prior)
 {
 	int	num;
 
 	g_iwm.write_val = val;
 	num = 0;
-	num = iwm_start_write_act(dsk, bit_pos, num, 0);
-	num = iwm_start_write_act(dsk, bit_pos, num, -1);	// -0.25
-	num = iwm_start_write_act(dsk, bit_pos, num, +1);	// +0.25
-	num = iwm_start_write_act(dsk, bit_pos, num, -2);	// -0.50
-	num = iwm_start_write_act(dsk, bit_pos, num, +2);	// +0.50
+	num = iwm_start_write_act(dsk, bit_pos, num, no_prior, 0);
+	num = iwm_start_write_act(dsk, bit_pos, num, no_prior, -1);	// -0.25
+	num = iwm_start_write_act(dsk, bit_pos, num, no_prior, +1);	// +0.25
+	num = iwm_start_write_act(dsk, bit_pos, num, no_prior, -2);	// -0.50
+	num = iwm_start_write_act(dsk, bit_pos, num, no_prior, +2);	// +0.50
 	g_iwm.num_active_writes = num;
 
 	woz_maybe_reparse(dsk);
 }
 
 int
-iwm_start_write_act(Disk *dsk, word32 bit_pos, int num, int delta)
+iwm_start_write_act(Disk *dsk, word32 bit_pos, int num, int no_prior, int delta)
 {
 	Trk	*trkptr;
 	word32	qtr_track, track_bits, bit_diff, prior_sum, allow_diff;
@@ -1853,6 +1885,9 @@ iwm_start_write_act(Disk *dsk, word32 bit_pos, int num, int delta)
 			bit_pos * 2, g_iwm.wr_last_bit[num]*2);
 #endif
 	}
+	if(no_prior) {
+		prior_sum = 0;
+	}
 	if(delta == 0) {
 		dsk->cur_fbit_pos = bit_pos << 9;
 		iwm_move_to_qtr_track(dsk, qtr_track);
@@ -1875,7 +1910,7 @@ iwm_write_data35(Disk *dsk, word32 val, dword64 dfcyc)
 }
 
 void
-iwm_write_end(Disk *dsk, dword64 dfcyc)
+iwm_write_end(Disk *dsk, int write_through_now, dword64 dfcyc)
 {
 	Trk	*trkptr;
 	word32	last_bit, qtr_track, num_bits, bit_start, delta, track_bits;
@@ -1892,7 +1927,9 @@ iwm_write_end(Disk *dsk, dword64 dfcyc)
 	if(num_active_writes == 0) {
 		return;			// Invalid, not in a write
 	}
-	iwm_write_data(dsk, 0, dfcyc);
+	if(write_through_now) {
+		iwm_write_data(dsk, 0, dfcyc);
+	}
 
 	for(i = 0; i < num_active_writes; i++) {
 		last_bit = g_iwm.wr_last_bit[i];
@@ -2758,7 +2795,6 @@ iwm_track_to_unix(Disk *dsk, word32 qtr_track, byte *outbuf)
 		printf("Wrote track %07x to fd:%d off:%08llx, len:%07llx\n",
 			dsk->cur_frac_track, dsk->fd, dunix_pos, unix_len);
 		woz_rewrite_crc(dsk, 0);
-		woz_check_file(dsk);
 	}
 
 	return 1;
@@ -3455,7 +3491,7 @@ iwm_toggle_lock(Disk *dsk)
 {
 	printf("iwm_toggle_lock: write_prot:%d, write_through:%d\n",
 		dsk->write_prot, dsk->write_through_to_unix);
-	if((dsk->write_prot == 2) || (dsk->raw_data != 0) || (dsk->fd < 0)) {
+	if(dsk->write_prot == 2) {
 		// nothing to do
 		return;
 	}
@@ -3466,7 +3502,7 @@ iwm_toggle_lock(Disk *dsk)
 		dsk->write_prot = 1;
 	}
 	printf("New dsk->write_prot: %d\n", dsk->write_prot);
-	if(dsk->wozinfo_ptr) {
+	if(dsk->wozinfo_ptr && dsk->write_through_to_unix) {
 		woz_rewrite_lock(dsk);
 		printf("Called woz_rewrite_lock()\n");
 		return;

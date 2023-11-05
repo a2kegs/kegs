@@ -1,4 +1,4 @@
-const char rcsid_debugger_c[] = "@(#)$KmKId: debugger.c,v 1.58 2023-06-21 21:15:44+00 kentd Exp $";
+const char rcsid_debugger_c[] = "@(#)$KmKId: debugger.c,v 1.60 2023-09-11 12:55:28+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -44,7 +44,7 @@ int	g_debug_to_stdout = 1;
 extern byte *g_memory_ptr;
 extern byte *g_slow_memory_ptr;
 extern int g_halt_sim;
-extern int g_c068_statereg;
+extern word32 g_c068_statereg;
 extern word32 stop_run_at;
 extern int Verbose;
 extern int Halt_on;
@@ -53,6 +53,9 @@ extern Kimage g_debugwin_kimage;
 
 extern int g_config_control_panel;
 extern word32 g_mem_size_total;
+
+extern char *g_sound_file_str;
+extern word32 g_sound_file_bytes;
 
 int	g_num_breakpoints = 0;
 Break_point g_break_pts[MAX_BREAK_POINTS];
@@ -448,6 +451,7 @@ Dbg_longcmd g_debug_longcmds[] = {
 					"bp ADDR: sets breakpoint on addr" },
 	{ "logpc",	debug_logpc,	&g_debug_logpc[0], "Log PC" },
 	{ "iwm",	debug_iwm,	&g_debug_iwm[0], "IWM" },
+	{ "soundfile",	debug_soundfile, 0, "Save sound to a WAV file" },
 	{ 0, 0, 0, 0 }
 };
 
@@ -966,6 +970,50 @@ debug_getnum(const char **str_ptr)
 	return (word32)-1L;
 }
 
+char *
+debug_get_filename(const char **str_ptr)
+{
+	const char *str, *start_str;
+	char	*new_str;
+	int	c, len;
+
+	// Go to first whitespace (or end of str), then kegs_malloc_str()
+	//  the string and copy to it
+	str = *str_ptr;
+	start_str = 0;
+	//printf("get_filename, str now :%s:\n", str);
+	while(1) {
+		c = *str++;
+		if(c == 0) {
+			break;
+		}
+		if((c == ' ') || (c == '\t') || (c == '\n')) {
+			//printf("c:%02x at str :%s: , start_str:%p\n", c, str,
+			//					start_str);
+			if(start_str) {
+				break;
+			}
+			continue;
+		}
+		// Else it's a valid char, set start_str if needed
+		if(!start_str) {
+			start_str = str - 1;
+			//printf("Got c:%02x, start_str :%s:\n", c, start_str);
+		}
+	}
+	new_str = 0;
+	if(start_str) {
+		len = (int)(str - start_str);
+		if(len > 1) {
+			new_str = malloc(len);
+			memcpy(new_str, start_str, len);
+			new_str[len - 1] = 0;
+		}
+	}
+	*str_ptr = str;
+	return new_str;
+}
+
 void
 debug_help(const char *str)
 {
@@ -1038,6 +1086,16 @@ debug_bp_setclr(const char *str, int is_set_clear)
 	} else {				// set, or nothing
 		set_bp(addr, end_addr, acc_type);
 	}
+}
+
+void
+debug_soundfile(const char *cmd_str)
+{
+	char	*str;
+
+	// See if there's an argument
+	str = debug_get_filename(&cmd_str);	// str=0 if no argument
+	sound_file_start(str);			// str==0 means close file
 }
 
 void

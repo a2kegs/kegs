@@ -1,4 +1,4 @@
-const char rcsid_voc_c[] = "@(#)$KmKId: voc.c,v 1.11 2023-05-04 19:32:06+00 kentd Exp $";
+const char rcsid_voc_c[] = "@(#)$KmKId: voc.c,v 1.12 2023-09-23 17:52:44+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -20,7 +20,7 @@ const char rcsid_voc_c[] = "@(#)$KmKId: voc.c,v 1.11 2023-05-04 19:32:06+00 kent
 
 #include "defc.h"
 
-extern int g_c02b_val;
+extern word32 g_c02b_val;
 extern int g_cur_a2_stat;
 extern word32 g_vbl_count;
 

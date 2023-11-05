@@ -1,5 +1,5 @@
 #ifdef INCLUDE_RCSID_C
-const char rcsid_scc_h[] = "@(#)$KmKId: scc.h,v 1.23 2023-05-19 13:59:31+00 kentd Exp $";
+const char rcsid_scc_h[] = "@(#)$KmKId: scc.h,v 1.24 2023-08-28 02:03:21+00 kentd Exp $";
 #endif
 
 /************************************************************************/
@@ -42,19 +42,18 @@ const char rcsid_scc_h[] = "@(#)$KmKId: scc.h,v 1.23 2023-05-19 13:59:31+00 kent
 #ifndef _WIN32
 # define SOCKET			int		/* For non-Windows */
 # define INVALID_SOCKET		(-1)		/* For non-Windows */
-# define closesocket(s)		close(s)
 #endif
 
 STRUCT(Scc) {
-	int	port;
-	int	state;
-	int	accfd;
+	int	cur_state;
+	int	modem_state;
 	SOCKET	sockfd;
-	int	socket_state;
 	SOCKET	rdwrfd;
-	void	*host_handle;
-	void	*host_handle2;
-	int	host_aux1;
+	void	*sockaddr_ptr;		// Socket: pointer to sockaddr struct
+	int	sockaddr_size;		// Socket: sizeof(sockaddr_in)
+	int	unix_dev_fd;		// Unix fd to real serial device
+	void	*win_com_handle;	// Win32 handle to COMx port
+	void	*win_dcb_ptr;		// Win32 ptr to COMx DCB
 	int	read_called_this_vbl;
 	int	write_called_this_vbl;
 
@@ -92,10 +91,10 @@ STRUCT(Scc) {
 	int	baud_rate;
 	dword64	out_char_dfcyc;
 
+	int	socket_error;
 	int	socket_num_rings;
 	dword64	socket_last_ring_dfcyc;
 	word32	modem_mode;
-	int	modem_dial_or_acc_mode;
 	int	modem_plus_mode;
 	int	modem_s0_val;
 	int	telnet_mode;

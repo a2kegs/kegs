@@ -1,4 +1,4 @@
-const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.293 2023-06-12 21:10:34+00 kentd Exp $";
+const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.299 2023-09-23 17:53:57+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -49,34 +49,39 @@ int	g_em_emubyte_cnt = 0;
 int	g_paddle_buttons = 0;
 int	g_irq_pending = 0;
 
-int	g_c023_val = 0;
-int	g_c029_val_some = 0x41;
-int	g_c02b_val = 0x08;
-int	g_c02d_int_crom = 0;
-int	g_c033_data = 0;
-int	g_c034_val = 0;
-int	g_c035_shadow_reg = 0x08;
-int	g_c036_val_speed = 0x80;
+word32	g_c023_val = 0;
+word32	g_c029_val_some = 0x41;
+word32	g_c02b_val = 0x08;
+word32	g_c02d_int_crom = 0;
+word32	g_c033_data = 0;
+word32	g_c034_val = 0;
+word32	g_c035_shadow_reg = 0x08;	// A bit set inhibits that shadowing
+		// [6]=Inhibit I/O and LC, [4]=Inhibit Aux hires, [3]=Inh SHR
+		// [2]=Inh hires pg 2, [1]=Inh hires pg 1, [0]=Inh text pages
+word32	g_c036_val_speed = 0x80;	// [7]=Fast, [4]=Shadow in all banks,
+					// [3:0]=slot 7..4 disk motor detect
 word32	g_c03ef_doc_ptr = 0;
-int	g_c041_val = 0;		/* C041_EN_25SEC_INTS, C041_EN_MOVE_INTS */
-int	g_c046_val = 0;
-int	g_c05x_annuncs = 0;
-int	g_c068_statereg = 0;
+word32	g_c041_val = 0;		/* C041_EN_25SEC_INTS, C041_EN_MOVE_INTS */
+word32	g_c046_val = 0;
+word32	g_c05x_annuncs = 0;
+word32	g_c068_statereg = 0;	// [7]=ALTZP, [6]=PAGE2, [5]=RAMRD, [4]=RAMWRT
+			// [3]=RDROM, [2]=LCBANK2, [1]=ROMBANK, [0]=INTCXROM
+			// KEGS special: [8]=PREWRITE_LC, [9]=WRDEFRAM,
+			//	[10]=INTC8ROM
 word32	g_c06d_val = 0;
 word32	g_c06f_val = 0;
-int	g_c08x_wrdefram = 0;
-int	g_zipgs_unlock = 0;
-int	g_zipgs_reg_c059 = 0x5f;
+word32	g_zipgs_unlock = 0;
+word32	g_zipgs_reg_c059 = 0x5f;
 	// 7=LC cache dis, 6==5ms paddle del en, 5==5ms ext del en,
 	// 4==5ms c02e enab, 3==CPS follow enab, 2-0: 111
-int	g_zipgs_reg_c05a = 0x0f;
+word32	g_zipgs_reg_c05a = 0x0f;
 	// 7:4 = current ZIP speed, 0=100%, 1=93.75%, F=6.25%
 	// 3:0: always 1111
-int	g_zipgs_reg_c05b = 0x40;
+word32	g_zipgs_reg_c05b = 0x40;
 	// 7==1ms clock, 6==cshupd: tag data at c05f updated
 	// 5==LC cache disable, 4==bd is disabled, 3==delay in effect,
 	// 2==rombank, 1-0==ram size (00:8K, 01=16K, 10=32K, 11=64K)
-int	g_zipgs_reg_c05c = 0x00;
+word32	g_zipgs_reg_c05c = 0x00;
 	// 7:1==slot delay enable (for 52-54ms), 0==speaker 5ms delay
 
 word32	g_c06c_latched_cyc = 0;
@@ -84,11 +89,11 @@ word32	g_c06c_latched_cyc = 0;
 #define EMUSTATE(a)	{ #a, &a }
 
 Emustate_intlist g_emustate_intlist[] = {
-	EMUSTATE(g_cur_a2_stat),
-	EMUSTATE(g_paddle_buttons),
+	// EMUSTATE(g_cur_a2_stat),
+	// EMUSTATE(g_paddle_buttons),
 
-	EMUSTATE(g_em_emubyte_cnt),
-	EMUSTATE(g_irq_pending),
+	// EMUSTATE(g_em_emubyte_cnt),
+	// EMUSTATE(g_irq_pending),
 	EMUSTATE(g_c023_val),
 	EMUSTATE(g_c029_val_some),
 	EMUSTATE(g_c02b_val),
@@ -101,7 +106,6 @@ Emustate_intlist g_emustate_intlist[] = {
 	EMUSTATE(g_c046_val),
 	EMUSTATE(g_c05x_annuncs),
 	EMUSTATE(g_c068_statereg),
-	EMUSTATE(g_c08x_wrdefram),
 	EMUSTATE(g_zipgs_unlock),
 	EMUSTATE(g_zipgs_reg_c059),
 	EMUSTATE(g_zipgs_reg_c05a),
@@ -181,36 +185,47 @@ fixup_bank0_2000_4000()
 {
 	byte	*mem0rd;
 	byte	*mem0wr;
+	word32	start_page;
+	int	i;
 
-	mem0rd = &(g_memory_ptr[0x2000]);
-	mem0wr = mem0rd;
-	if((g_cur_a2_stat & ALL_STAT_ST80) && (g_cur_a2_stat & ALL_STAT_HIRES)){
-		if(g_cur_a2_stat & ALL_STAT_PAGE2) {
-			mem0rd += 0x10000;
-			mem0wr += 0x10000;
-			if((g_c035_shadow_reg & 0x12) == 0 ||
-					(g_c035_shadow_reg & 0x8) == 0) {
-				mem0wr += BANK_SHADOW2;
+	// Do banks $00 and $E0
+
+	for(i = 0; i < 2; i++) {
+		mem0rd = &(g_memory_ptr[0x2000]);
+		start_page = 0x20;
+		if(i) {
+			start_page += 0xe000;			// Bank $E0
+			mem0rd = &(g_slow_memory_ptr[0x2000]);
+		}
+		mem0wr = mem0rd;
+		if((g_cur_a2_stat & ALL_STAT_ST80) &&
+					(g_cur_a2_stat & ALL_STAT_HIRES)) {
+			if(g_cur_a2_stat & ALL_STAT_PAGE2) {
+				mem0rd += 0x10000;
+				mem0wr += 0x10000;
+				if(((g_c035_shadow_reg & 0x12) == 0) ||
+					((g_c035_shadow_reg & 0x8) == 0) || i) {
+					mem0wr += BANK_SHADOW2;
+				}
+			} else if(((g_c035_shadow_reg & 0x02) == 0) || i) {
+				mem0wr += BANK_SHADOW;
 			}
-		} else if((g_c035_shadow_reg & 0x02) == 0) {
-			mem0wr += BANK_SHADOW;
-		}
-	} else {
-		if(RAMRD) {
-			mem0rd += 0x10000;
-		}
-		if(RAMWRT) {
-			mem0wr += 0x10000;
-			if((g_c035_shadow_reg & 0x12) == 0 ||
-					(g_c035_shadow_reg & 0x8) == 0) {
-				mem0wr += BANK_SHADOW2;
+		} else {
+			if(RAMRD) {
+				mem0rd += 0x10000;
 			}
-		} else if((g_c035_shadow_reg & 0x02) == 0) {
-			mem0wr += BANK_SHADOW;
+			if(RAMWRT) {
+				mem0wr += 0x10000;
+				if(((g_c035_shadow_reg & 0x12) == 0) ||
+					((g_c035_shadow_reg & 0x8) == 0) || i) {
+					mem0wr += BANK_SHADOW2;
+				}
+			} else if(((g_c035_shadow_reg & 0x02) == 0) || i) {
+				mem0wr += BANK_SHADOW;
+			}
 		}
+		fixup_any_bank_any_page(start_page, 0x20, mem0rd, mem0wr);
 	}
-
-	fixup_any_bank_any_page(0x20, 0x20, mem0rd, mem0wr);
 }
 
 void
@@ -218,35 +233,43 @@ fixup_bank0_0400_0800()
 {
 	byte	*mem0rd;
 	byte	*mem0wr;
-	int	shadow;
+	word32	start_page, shadow;
+	int	i;
 
-	mem0rd = &(g_memory_ptr[0x400]);
-	mem0wr = mem0rd;
-	shadow = BANK_SHADOW;
-	if(g_cur_a2_stat & ALL_STAT_ST80) {
-		if(g_cur_a2_stat & ALL_STAT_PAGE2) {
-			shadow = BANK_SHADOW2;
-			mem0rd += 0x10000;
-			mem0wr += 0x10000;
+	for(i = 0; i < 2; i++) {
+		mem0rd = &(g_memory_ptr[0x400]);
+		start_page = 4;
+		if(i) {
+			start_page += 0xe000;			// Bank $E0
+			mem0rd = &(g_slow_memory_ptr[0x400]);
 		}
-	} else {
-		if(RAMWRT) {
-			shadow = BANK_SHADOW2;
-			mem0wr += 0x10000;
+		mem0wr = mem0rd;
+		shadow = BANK_SHADOW;
+		if(g_cur_a2_stat & ALL_STAT_ST80) {
+			if(g_cur_a2_stat & ALL_STAT_PAGE2) {
+				shadow = BANK_SHADOW2;
+				mem0rd += 0x10000;
+				mem0wr += 0x10000;
+			}
+		} else {
+			if(RAMWRT) {
+				shadow = BANK_SHADOW2;
+				mem0wr += 0x10000;
+			}
+			if(RAMRD) {
+				mem0rd += 0x10000;
+			}
 		}
-		if(RAMRD) {
-			mem0rd += 0x10000;
+		if(((g_c035_shadow_reg & 0x01) == 0) || i) {
+			mem0wr += shadow;
 		}
-	}
-	if((g_c035_shadow_reg & 0x01) == 0) {
-		mem0wr += shadow;
-	}
 
-	fixup_any_bank_any_page(0x4, 4, mem0rd, mem0wr);
+		fixup_any_bank_any_page(start_page, 4, mem0rd, mem0wr);
+	}
 }
 
 void
-fixup_any_bank_any_page(int start_page, int num_pages, byte *mem0rd,
+fixup_any_bank_any_page(word32 start_page, int num_pages, byte *mem0rd,
 		byte *mem0wr)
 {
 	int	i;
@@ -292,7 +315,7 @@ fixup_intcx()
 		}
 		/* step off through 0x00, 0x01, 0xe0, 0xe1 */
 
-		off = off << 8;
+		off = off << 8;		// Now 0x0000, 0x0100, 0xe000, 0xe100
 		SET_PAGE_INFO_RD(0xc0 + off, SET_BANK_IO);
 
 		for(j = 0xc1; j < 0xc8; j++) {
@@ -307,17 +330,26 @@ fixup_intcx()
 				if(j == 0xc4) {		// Mockingboard
 					rom_inc = SET_BANK_IO;
 				}
+				if(j == 0xc7) {		// Slot 7, virtual hd
+					rom_inc = SET_BANK_IO;
+				}
+			}
+			if((j == 0xc3) && !(g_c068_statereg & 0x400)) {
+				// If INTC8ROM not set, we need to
+				//  watch for reads from C3xx to set it
+				rom_inc = SET_BANK_IO;
 			}
 			SET_PAGE_INFO_RD(j + off, rom_inc);
 		}
 		for(j = 0xc8; j < 0xd0; j++) {
 			/* c800 - cfff */
-			if(((g_c02d_int_crom & (1 << 3)) == 0) || intcx ||
-							(g_rom_version == 0)) {
+			if(intcx || (g_c068_statereg & 0x400)) {
+				// INTCXROM or INTC8ROM is set
 				rom_inc = rom10000 + (j << 8);
-			} else {
-				/* c800 space not necessarily mapped */
-				//rom_inc = rom10000 + (j << 8);
+				if((j == 0xcf) && (g_c068_statereg & 0x400)) {
+					rom_inc = SET_BANK_IO;
+				}
+			} else {	// c800 space not necessarily mapped
 				rom_inc = SET_BANK_IO;
 			}
 			SET_PAGE_INFO_RD(j + off, rom_inc);
@@ -325,68 +357,6 @@ fixup_intcx()
 		for(j = 0xc0; j < 0xd0; j++) {
 			SET_PAGE_INFO_WR(j + off, SET_BANK_IO);
 		}
-	}
-
-	if(!no_io_shadow) {
-		SET_PAGE_INFO_RD(0xc7, SET_BANK_IO);		/* smartport */
-	}
-
-	fixup_brks();
-}
-
-void
-fixup_wrdefram(int new_wrdefram)
-{
-	byte	*mem0wr;
-	byte	*wrptr;
-	int	j;
-
-	g_c08x_wrdefram = new_wrdefram;
-	if(g_c035_shadow_reg & 0x40) {
-		/* do nothing */
-		return;
-	}
-
-	/* if shadowing, banks 0 and 1 are affected by wrdefram */
-	mem0wr = &(g_memory_ptr[0]);
-	if(!new_wrdefram) {
-		mem0wr += (BANK_IO_TMP | BANK_IO2_TMP);
-	}
-
-	wrptr = mem0wr + 0x1e000;
-	for(j = 0x1e0; j < 0x200; j++) {
-		SET_PAGE_INFO_WR(j, wrptr);
-		wrptr += 0x100;
-	}
-
-	wrptr = mem0wr + 0x0e000;
-	if(ALTZP) {
-		wrptr += 0x10000;
-	}
-	for(j = 0xe0; j < 0x100; j++) {
-		SET_PAGE_INFO_WR(j, wrptr);
-		wrptr += 0x100;
-	}
-
-	wrptr = mem0wr + 0x1d000;
-	if(! LCBANK2) {
-		wrptr -= 0x1000;
-	}
-	for(j = 0x1d0; j < 0x1e0; j++) {
-		SET_PAGE_INFO_WR(j, wrptr);
-		wrptr += 0x100;
-	}
-
-	wrptr = mem0wr + 0xd000;
-	if(! LCBANK2) {
-		wrptr -= 0x1000;
-	}
-	if(ALTZP) {
-		wrptr += 0x10000;
-	}
-	for(j = 0xd0; j < 0xe0; j++) {
-		SET_PAGE_INFO_WR(j, wrptr);
-		wrptr += 0x100;
 	}
 
 	fixup_brks();
@@ -417,64 +387,23 @@ fixup_st80col(dword64 dfcyc)
 void
 fixup_altzp()
 {
-	byte	*mem0rd, *mem0wr;
-	int	rdrom, c08x_wrdefram;
-	int	altzp;
+	byte	*mem0rd;
+	word32	start_page, altzp;
+	int	i;
 
 	altzp = ALTZP;
-	mem0rd = &(g_memory_ptr[0]);
-	if(altzp) {
-		mem0rd += 0x10000;
-	}
-	SET_PAGE_INFO_RD(0, mem0rd);
-	SET_PAGE_INFO_RD(1, mem0rd + 0x100);
-	SET_PAGE_INFO_WR(0, mem0rd);
-	SET_PAGE_INFO_WR(1, mem0rd + 0x100);
-
-	mem0rd = &(g_memory_ptr[0xd000]);
-	mem0wr = mem0rd;
-	c08x_wrdefram = g_c08x_wrdefram;
-	rdrom = RDROM;
-
-	if(g_c035_shadow_reg & 0x40) {
-		if(ALTZP) {
+	for(i = 0; i < 2; i++) {
+		start_page = 0;
+		mem0rd = &(g_memory_ptr[0]);
+		if(i) {
+			start_page = 0xe000;
+			mem0rd = &(g_slow_memory_ptr[0]);
+		}
+		if(altzp) {
 			mem0rd += 0x10000;
 		}
-		fixup_any_bank_any_page(0xd0, 0x10, mem0rd - 0x1000,
-						mem0rd - 0x1000);
-		c08x_wrdefram = 1;
-		rdrom = 0;
-	} else {
-		if(!c08x_wrdefram) {
-			mem0wr += (BANK_IO_TMP | BANK_IO2_TMP);
-		}
-		if(ALTZP) {
-			mem0rd += 0x10000;
-			mem0wr += 0x10000;
-		}
-		if(! LCBANK2) {
-			mem0rd -= 0x1000;
-			mem0wr -= 0x1000;
-		}
-		if(rdrom) {
-			mem0rd = &(g_rom_fc_ff_ptr[0x3d000]);
-		}
-		fixup_any_bank_any_page(0xd0, 0x10, mem0rd, mem0wr);
+		fixup_any_bank_any_page(start_page, 2, mem0rd, mem0rd);
 	}
-
-	mem0rd = &(g_memory_ptr[0xe000]);
-	mem0wr = mem0rd;
-	if(!c08x_wrdefram) {
-		mem0wr += (BANK_IO_TMP | BANK_IO2_TMP);
-	}
-	if(ALTZP) {
-		mem0rd += 0x10000;
-		mem0wr += 0x10000;
-	}
-	if(rdrom) {
-		mem0rd = &(g_rom_fc_ff_ptr[0x3e000]);
-	}
-	fixup_any_bank_any_page(0xe0, 0x20, mem0rd, mem0wr);
 
 	/* No need for fixup_brks since called from set_statereg() */
 }
@@ -496,8 +425,8 @@ void
 fixup_ramrd()
 {
 	byte	*mem0rd;
-	int	cur_a2_stat;
-	int	j;
+	word32	start_page, cur_a2_stat;
+	int	i, j;
 
 	cur_a2_stat = g_cur_a2_stat;
 
@@ -509,20 +438,28 @@ fixup_ramrd()
 		fixup_bank0_2000_4000();
 	}
 
-	mem0rd = &(g_memory_ptr[0x0000]);
-	if(RAMRD) {
-		mem0rd += 0x10000;
-	}
+	for(i = 0; i < 2; i++) {
+		start_page = 0;
+		mem0rd = &(g_memory_ptr[0x0000]);
+		if(i) {
+			start_page = 0xe000;
+			mem0rd = &(g_slow_memory_ptr[0]);
+		}
 
-	SET_PAGE_INFO_RD(2, mem0rd + 0x200);
-	SET_PAGE_INFO_RD(3, mem0rd + 0x300);
+		if(RAMRD) {
+			mem0rd += 0x10000;
+		}
 
-	for(j = 8; j < 0x20; j++) {
-		SET_PAGE_INFO_RD(j, mem0rd + j*0x100);
-	}
+		SET_PAGE_INFO_RD(start_page + 2, mem0rd + 0x200);
+		SET_PAGE_INFO_RD(start_page + 3, mem0rd + 0x300);
 
-	for(j = 0x40; j < 0xc0; j++) {
-		SET_PAGE_INFO_RD(j, mem0rd + j*0x100);
+		for(j = 8; j < 0x20; j++) {
+			SET_PAGE_INFO_RD(start_page + j, mem0rd + j*0x100);
+		}
+
+		for(j = 0x40; j < 0xc0; j++) {
+			SET_PAGE_INFO_RD(start_page + j, mem0rd + j*0x100);
+		}
 	}
 
 	/* No need for fixup_brks since only called from set_statereg() */
@@ -532,10 +469,8 @@ void
 fixup_ramwrt()
 {
 	byte	*mem0wr;
-	int	cur_a2_stat;
-	int	shadow;
-	int	ramwrt;
-	int	j;
+	word32	start_page, cur_a2_stat, shadow, ramwrt;
+	int	i, j;
 
 	cur_a2_stat = g_cur_a2_stat;
 
@@ -547,93 +482,100 @@ fixup_ramwrt()
 		fixup_bank0_2000_4000();
 	}
 
-	mem0wr = &(g_memory_ptr[0x0000]);
-	ramwrt = RAMWRT;
-	if(ramwrt) {
-		mem0wr += 0x10000;
-	}
+	for(i = 0; i < 2; i++) {
+		start_page = 0;
+		mem0wr = &(g_memory_ptr[0x0000]);
+		if(i) {
+			start_page = 0xe000;
+			mem0wr = &(g_slow_memory_ptr[0]);
+		}
 
-	SET_PAGE_INFO_WR(2, mem0wr + 0x200);
-	SET_PAGE_INFO_WR(3, mem0wr + 0x300);
+		ramwrt = RAMWRT;
+		if(ramwrt) {
+			mem0wr += 0x10000;
+		}
 
-	shadow = BANK_SHADOW;
-	if(ramwrt) {
-		shadow = BANK_SHADOW2;
-	}
-	if( ((g_c035_shadow_reg & 0x20) != 0) ||
-			((g_rom_version == 1) && !g_user_page2_shadow)) {
-		shadow = 0;
-	}
-	for(j = 8; j < 0x0c; j++) {
-		SET_PAGE_INFO_WR(j, mem0wr + j*0x100 + shadow);
-	}
+		SET_PAGE_INFO_WR(start_page + 2, mem0wr + 0x200);
+		SET_PAGE_INFO_WR(start_page + 3, mem0wr + 0x300);
 
-	for(j = 0xc; j < 0x20; j++) {
-		SET_PAGE_INFO_WR(j, mem0wr + j*0x100);
-	}
-
-	shadow = 0;
-	if(ramwrt) {
-		if((g_c035_shadow_reg & 0x14) == 0 ||
-					(g_c035_shadow_reg & 0x08) == 0) {
+		shadow = BANK_SHADOW;
+		if(ramwrt) {
 			shadow = BANK_SHADOW2;
 		}
-	} else if((g_c035_shadow_reg & 0x04) == 0) {
-		shadow = BANK_SHADOW;
-	}
-	for(j = 0x40; j < 0x60; j++) {
-		SET_PAGE_INFO_WR(j, mem0wr + j*0x100 + shadow);
-	}
+		if( ((g_c035_shadow_reg & 0x20) != 0) ||
+			((g_rom_version == 1) && !g_user_page2_shadow)) {
+			if(!i) {
+				shadow = 0;
+			}
+		}
+		for(j = 8; j < 0x0c; j++) {
+			SET_PAGE_INFO_WR(start_page + j,
+						mem0wr + j*0x100 + shadow);
+		}
 
-	shadow = 0;
-	if(ramwrt && (g_c035_shadow_reg & 0x08) == 0) {
-		/* shr shadowing */
-		shadow = BANK_SHADOW2;
-	}
-	for(j = 0x60; j < 0xa0; j++) {
-		SET_PAGE_INFO_WR(j, mem0wr + j*0x100 + shadow);
-	}
+		for(j = 0xc; j < 0x20; j++) {
+			SET_PAGE_INFO_WR(start_page + j, mem0wr + j*0x100);
+		}
 
-	for(j = 0xa0; j < 0xc0; j++) {
-		SET_PAGE_INFO_WR(j, mem0wr + j*0x100);
+		shadow = 0;
+		if(ramwrt) {
+			if(((g_c035_shadow_reg & 0x14) == 0) ||
+				((g_c035_shadow_reg & 0x08) == 0) || i) {
+				shadow = BANK_SHADOW2;
+			}
+		} else if(((g_c035_shadow_reg & 0x04) == 0) || i) {
+			shadow = BANK_SHADOW;
+		}
+		for(j = 0x40; j < 0x60; j++) {
+			SET_PAGE_INFO_WR(start_page + j,
+						mem0wr + j*0x100 + shadow);
+		}
+
+		shadow = 0;
+		if(ramwrt && (((g_c035_shadow_reg & 0x08) == 0) || i)) {
+			/* shr shadowing */
+			shadow = BANK_SHADOW2;
+		}
+		for(j = 0x60; j < 0xa0; j++) {
+			SET_PAGE_INFO_WR(start_page + j,
+						mem0wr + j*0x100 + shadow);
+		}
+
+		for(j = 0xa0; j < 0xc0; j++) {
+			SET_PAGE_INFO_WR(start_page + j, mem0wr + j*0x100);
+		}
 	}
 
 	/* No need for fixup_brks() since only called from set_statereg() */
 }
 
 void
-fixup_lcbank2()
+fixup_lc()
 {
 	byte	*mem0rd, *mem0wr;
-	int	lcbank2, c08x_wrdefram, rdrom;
-	int	off;
+	word32	bank, lcbank2, c08x_wrdefram, rdrom;
 	int	k;
 
+	// Fixup memory from 0xd000 - 0xffff in banks 0, 1, $e0, $e1
 	for(k = 0; k < 4; k++) {
-		off = k;
+		bank = k;
+		mem0rd = &(g_memory_ptr[k << 16]);
 		if(k >= 2) {
-			off += (0xe0 - 2);
-		}
-		/* step off through 0x00, 0x01, 0xe0, 0xe1 */
-
-		if(k < 2) {
-			mem0rd = &(g_memory_ptr[k << 16]);
-		} else {
+			bank += (0xe0 - 2);	//k==2->bank=$e0, k==3->bank=$e1
 			mem0rd = &(g_slow_memory_ptr[(k & 1) << 16]);
 		}
-		if((k == 0) && ALTZP) {
+		/* step bank through 0x00, 0x01, 0xe0, 0xe1 */
+
+		if(((k & 1) == 0) && ALTZP) {
 			mem0rd += 0x10000;
 		}
 		lcbank2 = LCBANK2;
-		c08x_wrdefram = g_c08x_wrdefram;
+		c08x_wrdefram = g_c068_statereg & 0x200;
 		rdrom = RDROM;
 		if((k < 2) && (g_c035_shadow_reg & 0x40)) {
 			lcbank2 = 0;
 			c08x_wrdefram = 1;
 			rdrom = 0;
-		}
-		if(! lcbank2) {
-			mem0rd -= 0x1000;	/* lcbank1, use 0xc000-cfff */
 		}
 		mem0wr = mem0rd;
 		if((k < 2) && !c08x_wrdefram) {
@@ -642,7 +584,15 @@ fixup_lcbank2()
 		if((k < 2) && rdrom) {
 			mem0rd = &(g_rom_fc_ff_ptr[0x30000]);
 		}
-		fixup_any_bank_any_page(off*0x100 + 0xd0, 0x10,
+		fixup_any_bank_any_page(bank*0x100 + 0xe0, 0x20,
+					mem0rd + 0xe000, mem0wr + 0xe000);
+		if(! lcbank2) {		// lcbank1, 0xd000 is ram at 0xc000-cfff
+			if(!rdrom) {
+				mem0rd -= 0x1000;
+			}
+			mem0wr -= 0x1000;
+		}
+		fixup_any_bank_any_page(bank*0x100 + 0xd0, 0x10,
 					mem0rd + 0xd000, mem0wr + 0xd000);
 	}
 
@@ -651,39 +601,11 @@ fixup_lcbank2()
 }
 
 void
-fixup_rdrom()
+set_statereg(dword64 dfcyc, word32 val)
 {
-	byte	*mem0rd;
-	int	j, k;
+	word32	xor;
 
-	/* fixup_lcbank2 handles 0xd000-dfff for rd & wr*/
-	fixup_lcbank2();
-
-	for(k = 0; k < 2; k++) {
-		/* k is the bank */
-		mem0rd = &(g_memory_ptr[k << 16]);
-		if((k == 0) && ALTZP) {
-			mem0rd += 0x10000;
-		}
-		if((g_c035_shadow_reg & 0x40) == 0) {
-			if(RDROM) {
-				mem0rd = &(g_rom_fc_ff_ptr[0x30000]);
-			}
-		}
-		for(j = 0xe0; j < 0x100; j++) {
-			SET_PAGE_INFO_RD(j + k*0x100, mem0rd + j*0x100);
-		}
-	}
-
-	/* No need for fixup_brks() since only called from set_statereg() */
-}
-
-void
-set_statereg(dword64 dfcyc, int val)
-{
-	int	xor;
-
-	dbg_log_info(dfcyc, val, g_c068_statereg, 0x68);
+	dbg_log_info(dfcyc, val, g_c068_statereg, 0xc068);
 
 	xor = val ^ g_c068_statereg;
 	g_c068_statereg = val;
@@ -691,43 +613,31 @@ set_statereg(dword64 dfcyc, int val)
 		return;
 	}
 
-	if(xor & 0x80) {
-		/* altzp */
-		fixup_altzp();
+	if(xor & 0x28c) {		// WRDEFRAM, ALTZP, RDROM, LCBANK2
+		fixup_lc();
+		if(xor & 0x80) {		/* altzp */
+			fixup_altzp();
+		}
 	}
-	if(xor & 0x40) {
-		/* page2 */
+	if(xor & 0x40) {		// page2
 		g_cur_a2_stat = (g_cur_a2_stat & ~ALL_STAT_PAGE2) |
 						(val & ALL_STAT_PAGE2);
 		fixup_page2(dfcyc);
 	}
 
-	if(xor & 0x20) {
-		/* RAMRD */
+	if(xor & 0x20) {		// RAMRD
 		fixup_ramrd();
 	}
 
-	if(xor & 0x10) {
-		/* RAMWRT */
+	if(xor & 0x10) {		// RAMWRT
 		fixup_ramwrt();
 	}
 
-	if(xor & 0x08) {
-		/* RDROM */
-		fixup_rdrom();
-	}
-
-	if(xor & 0x04) {
-		/* LCBANK2 */
-		fixup_lcbank2();
-	}
-
-	if(xor & 0x02) {
-		/* ROMBANK */
+	if(xor & 0x02) {		// ROMBANK
 		halt_printf("Just set rombank = %d\n", ROMB);
 	}
 
-	if(xor & 0x01) {
+	if(xor & 0x401) {		// INTC8ROM, INTCX
 		fixup_intcx();
 	}
 
@@ -887,21 +797,17 @@ fixup_shadow_iolc()
 		/* 0xc000 area */
 		fixup_intcx();
 
-		/* 0xd000 area */
-		/* fixup_lcbank2(); -- not needed since fixup_rdrom does it */
-
-		/* Fix 0xd000-0xffff for reads, banks 0 and 1 */
-		fixup_rdrom();		/* which calls fixup_lcbank2 */
-
-		/* Fix 0xd000-0xffff for writes, banks 0 and 1 */
-		fixup_wrdefram(g_c08x_wrdefram);
+		// Fix 0xd000-0xffff banks 0, 1, 0xe0, 0xe1
+		fixup_lc();
 	}
 }
 
 void
-update_shadow_reg(int val)
+update_shadow_reg(dword64 dfcyc, word32 val)
 {
 	int	xor;
+
+	dbg_log_info(dfcyc, val, g_c035_shadow_reg, 0xc035);
 
 	if(g_c035_shadow_reg == val) {
 		return;
@@ -992,33 +898,28 @@ setup_pageinfo()
 
 	/* banks e0, e1 */
 	mem0rd = &(g_slow_memory_ptr[0]);
-	fixup_any_bank_any_page(0xe000, 0x04, mem0rd + 0x0000, mem0rd + 0x0000);
+	fixup_any_bank_any_page(0xe000, 0x200, mem0rd, mem0rd);
+				// First, did all 128KB
+
 	fixup_any_bank_any_page(0xe004, 0x08, mem0rd + 0x0400,
 						mem0rd + 0x0400 + BANK_SHADOW);
-	fixup_any_bank_any_page(0xe00c, 0x14, mem0rd + 0x0c00, mem0rd + 0x0c00);
 	fixup_any_bank_any_page(0xe020, 0x80, mem0rd + 0x2000,
 						mem0rd + 0x2000 + BANK_SHADOW);
-	fixup_any_bank_any_page(0xe0a0, 0x60, mem0rd + 0xa000, mem0rd + 0xa000);
 
 	mem0rd = &(g_slow_memory_ptr[0x10000]);
-	fixup_any_bank_any_page(0xe100, 0x04, mem0rd + 0x0000, mem0rd + 0x0000);
 	fixup_any_bank_any_page(0xe104, 0x08, mem0rd + 0x0400,
 						mem0rd + 0x0400 + BANK_SHADOW2);
-	fixup_any_bank_any_page(0xe10c, 0x14, mem0rd + 0x0c00, mem0rd + 0x0c00);
 	fixup_any_bank_any_page(0xe120, 0x80, mem0rd + 0x2000,
 						mem0rd + 0x2000 + BANK_SHADOW2);
-	fixup_any_bank_any_page(0xe1a0, 0x60, mem0rd + 0xa000, mem0rd + 0xa000);
 
 	fixup_intcx();	/* correct banks 0xe0,0xe1, 0xc000-0xcfff area */
-	fixup_lcbank2(); /* correct 0xd000-0xdfff area */
+	fixup_lc();	/* correct 0xd000-0xdfff area */
 
 	fixup_bank0_2000_4000();
 	fixup_bank0_0400_0800();
-	fixup_wrdefram(g_c08x_wrdefram);
 	fixup_altzp();
 	fixup_ramrd();
 	fixup_ramwrt();
-	fixup_rdrom();
 	fixup_shadow_txt1();
 	fixup_shadow_txt2();
 	fixup_shadow_hires1();
@@ -1098,11 +999,12 @@ moremem_fix_vector_pull(word32 addr)
 	return addr;
 }
 
-int
+word32
 io_read(word32 loc, dword64 *cyc_ptr)
 {
 	dword64	dfcyc;
-	int	new_lcbank2, new_wrdefram, tmp;
+	word32	val;
+	word32	new_lcbank2, new_wrdefram, new_prewrite, new_rdrom, tmp;
 	int	i;
 
 	dfcyc = *cyc_ptr;
@@ -1193,8 +1095,7 @@ io_read(word32 loc, dword64 *cyc_ptr)
 			}
 			return 0;
 		case 0x2d: /* 0xc02d */
-			tmp = g_c02d_int_crom;
-			return tmp;
+			return g_c02d_int_crom;
 		case 0x2e: /* 0xc02e */
 		case 0x2f: /* 0xc02f */
 			return read_vid_counters(loc, dfcyc);
@@ -1220,13 +1121,13 @@ io_read(word32 loc, dword64 *cyc_ptr)
 		case 0x37: /* 0xc037 */
 			return 0;
 		case 0x38: /* 0xc038 */
-			return scc_read_reg(1, dfcyc);
+			return scc_read_reg(dfcyc, 1);
 		case 0x39: /* 0xc039 */
-			return scc_read_reg(0, dfcyc);
+			return scc_read_reg(dfcyc, 0);
 		case 0x3a: /* 0xc03a */
-			return scc_read_data(1, dfcyc);
+			return scc_read_data(dfcyc, 1);
 		case 0x3b: /* 0xc03b */
-			return scc_read_data(0, dfcyc);
+			return scc_read_data(dfcyc, 0);
 		case 0x3c: /* 0xc03c */
 			/* doc control */
 			return doc_read_c03c();
@@ -1412,7 +1313,7 @@ io_read(word32 loc, dword64 *cyc_ptr)
 		case 0x67: /* 0xc067 */
 			return read_paddles(dfcyc, 3);
 		case 0x68: /* 0xc068 = STATEREG */
-			return g_c068_statereg;
+			return g_c068_statereg & 0xff;
 		case 0x69: /* 0xc069 */
 			/* Reserved reg, return 0 */
 			return 0;
@@ -1441,25 +1342,26 @@ io_read(word32 loc, dword64 *cyc_ptr)
 		case 0x84: case 0x85: case 0x86: case 0x87:
 		case 0x88: case 0x89: case 0x8a: case 0x8b:
 		case 0x8c: case 0x8d: case 0x8e: case 0x8f:
-			new_lcbank2 = ((loc & 0x8) >> 1) ^ 0x4;
-			new_wrdefram = (loc & 1);
-			if(new_wrdefram != g_c08x_wrdefram) {
-				fixup_wrdefram(new_wrdefram);
+			new_lcbank2 = ((loc >> 1) & 0x4) ^ 0x4;
+			new_rdrom = ((loc << 3) ^ (loc << 2)) & 8;
+				// new_rdrom is set if loc[0] ^ loc[1] is true
+				// 8=RDROM, 0=read from LC RAM
+			new_prewrite = (loc & 1) << 8;	// Odd read set PREWRITE
+			new_wrdefram = g_c068_statereg & 0x200;
+			if((loc & 1) == 0) {
+				new_wrdefram = 0;	// Any even access clrs
+			} else {
+				new_wrdefram = (g_c068_statereg << 1) & 0x200;
+				// Odd read make Ram writeable if PREWRITE set
 			}
-			switch(loc & 0x3) {
-			case 0x1: /* 0xc081 */
-			case 0x2: /* 0xc082 */
-				/* Read rom, set lcbank2 */
-				set_statereg(dfcyc, (g_c068_statereg & (~4)) |
-					(new_lcbank2 | 0x08));
-				break;
-			case 0x0: /* 0xc080 */
-			case 0x3: /* 0xc083 */
-				/* Read ram (clear RDROM), set lcbank2 */
-				set_statereg(dfcyc, (g_c068_statereg & (~0xc)) |
-					(new_lcbank2));
-				break;
-			}
+			set_statereg(dfcyc, (g_c068_statereg & ~(0x30c)) |
+					new_lcbank2 | new_rdrom |
+					new_prewrite | new_wrdefram);
+			// access 0-7: lcbank1, 8-f: lcbank0
+			// a0!=a1: set rdrom (c081,c082,c085,c086, etc.)
+			// a0=1 && rd set prewrite.  a0=0, or wr: clear prewrite
+			// wrdefram is clr if a0=0, set if prewrite and
+			//  old_prewrite are set, otherwise stays same.
 			return float_bus(dfcyc);
 		/* 0xc090 - 0xc09f */
 		case 0x90: case 0x91: case 0x92: case 0x93:
@@ -1512,26 +1414,42 @@ io_read(word32 loc, dword64 *cyc_ptr)
 			printf("loc: %04x bad\n", loc);
 			UNIMPL_READ;
 		}
-	case 1: case 2: case 3: case 5: case 6:
-		/* c100 - c6ff, (except c4xx) */
+	case 1: case 2: case 5: case 6:
+		/* c100 - c6ff, (except c3xx, c4xx) */
 		return float_bus(dfcyc);
+	case 3:	// c300
+		return c3xx_read(dfcyc, loc);
 	case 4:
 		return mockingboard_read(loc, dfcyc);
 	case 7:
 		/* c700 */
-		tmp = g_rom_fc_ff_ptr[0x3c500 + (loc & 0xff)];
-		if((loc & 0xff) == 0xfb) {
-			tmp = tmp & 0xbf;	/* clear bit 6 for ROM 03 */
+		if((g_c068_statereg & 1) || ((g_c02d_int_crom & 0x80) == 0)) {
+			// INTCXROM set or c02d_slot_rom 7 is cleat
+			// This should never happen
+			tmp = g_rom_fc_ff_ptr[0x3c700 + (loc & 0xff)];
+		} else {
+			// Map slot 5 ROM to the slot 7 "my card"
+			tmp = g_rom_fc_ff_ptr[0x3c500 + (loc & 0xff)];
+			if((loc & 0xff) == 0xfb) {
+				tmp = tmp & 0xbf;	// clr bit 6 for ROM 03
+			}
 		}
 		return tmp;
 	case 8: case 9: case 0xa: case 0xb: case 0xc: case 0xd: case 0xe:
 		return float_bus(dfcyc);
 		// UNIMPL_READ;
-	case 0xf:
-		if((loc & 0xfff) == 0xfff) {
-			return g_rom_fc_ff_ptr[0x3cfff];
+	case 0xf:	// $CFxx
+		if(g_c068_statereg & 0x401) {		// INTC8ROM or INTCX
+			val = g_rom_fc_ff_ptr[0x3cf00 + (loc & 0xff)];
+		} else {
+			val = float_bus(dfcyc);
 		}
-		return float_bus(dfcyc);
+		if((loc & 0xfff) == 0xfff) {
+			if(g_c068_statereg & 0x400) {
+				set_statereg(dfcyc, g_c068_statereg & (~0x400));
+			}
+		}
+		return val;
 		// UNIMPL_READ;
 	}
 
@@ -1541,10 +1459,12 @@ io_read(word32 loc, dword64 *cyc_ptr)
 }
 
 void
-io_write(word32 loc, int val, dword64 *cyc_ptr)
+io_write(word32 loc, word32 val, dword64 *cyc_ptr)
 {
 	dword64	dfcyc;
-	int	new_tmp, new_lcbank2, new_wrdefram, tmp, fixup;
+	word32	new_lcbank2, new_wrdefram, new_rdrom, new_prewrite, tmp;
+	word32	new_tmp;
+	int	fixup;
 
 	dfcyc = *cyc_ptr;
 
@@ -1784,7 +1704,7 @@ io_write(word32 loc, int val, dword64 *cyc_ptr)
 			}
 			return;
 		case 0x35: /* 0xc035 */
-			update_shadow_reg(val);
+			update_shadow_reg(dfcyc, val);
 			return;
 		case 0x36: /* 0xc036 = CYAREG */
 			tmp = val ^ g_c036_val_speed;
@@ -1819,16 +1739,16 @@ io_write(word32 loc, int val, dword64 *cyc_ptr)
 			/* just ignore, probably someone writing c036 m=0 */
 			return;
 		case 0x38: /* 0xc038 */
-			scc_write_reg(1, val, dfcyc);
+			scc_write_reg(dfcyc, 1, val);
 			return;
 		case 0x39: /* 0xc039 */
-			scc_write_reg(0, val, dfcyc);
+			scc_write_reg(dfcyc, 0, val);
 			return;
 		case 0x3a: /* 0xc03a */
-			scc_write_data(1, val, dfcyc);
+			scc_write_data(dfcyc, 1, val);
 			return;
 		case 0x3b: /* 0xc03b */
-			scc_write_data(0, val, dfcyc);
+			scc_write_data(dfcyc, 0, val);
 			return;
 		case 0x3c: /* 0xc03c */
 			/* doc ctl */
@@ -2022,7 +1942,7 @@ io_write(word32 loc, int val, dword64 *cyc_ptr)
 			/* all the above do nothing--return */
 			return;
 		case 0x68: /* 0xc068 = STATEREG */
-			set_statereg(dfcyc, val);
+			set_statereg(dfcyc, (g_c068_statereg & ~0xff) | val);
 			return;
 		case 0x69: /* 0xc069 */
 			/* just ignore, someone writing c068 with m=0 */
@@ -2079,36 +1999,17 @@ io_write(word32 loc, int val, dword64 *cyc_ptr)
 		case 0x88: case 0x89: case 0x8a: case 0x8b:
 		case 0x8c: case 0x8d: case 0x8e: case 0x8f:
 			new_lcbank2 = ((loc >> 1) & 0x4) ^ 0x4;
-			new_wrdefram = (loc & 1);
-			if(new_wrdefram != g_c08x_wrdefram) {
-				fixup_wrdefram(new_wrdefram);
+			new_rdrom = ((loc << 3) ^ (loc << 2)) & 8;
+				// new_rdrom is set if loc0 ^ loc1 is set
+				// 8=RDROM, 0=read from LC RAM
+			new_prewrite = 0;		// Writes clear PREWRITE
+			new_wrdefram = g_c068_statereg & 0x200;
+			if((loc & 1) == 0) {
+				new_wrdefram = 0;	// Any even access clrs
 			}
-			switch(loc & 0xf) {
-			case 0x1: /* 0xc081 */
-			case 0x2: /* 0xc082 */
-			case 0x5: /* 0xc085 */
-			case 0x6: /* 0xc086 */
-			case 0x9: /* 0xc089 */
-			case 0xa: /* 0xc08a */
-			case 0xd: /* 0xc08d */
-			case 0xe: /* 0xc08e */
-				/* Read rom, set lcbank2 */
-				set_statereg(dfcyc, (g_c068_statereg & (~4)) |
-							(new_lcbank2 | 0x08));
-				break;
-			case 0x0: /* 0xc080 */
-			case 0x3: /* 0xc083 */
-			case 0x4: /* 0xc084 */
-			case 0x7: /* 0xc087 */
-			case 0x8: /* 0xc088 */
-			case 0xb: /* 0xc08b */
-			case 0xc: /* 0xc08c */
-			case 0xf: /* 0xc08f */
-				/* Read ram (clear RDROM), set lcbank2 */
-				set_statereg(dfcyc, (g_c068_statereg & ~(0x0c))|
-					(new_lcbank2));
-				break;
-			}
+			set_statereg(dfcyc, (g_c068_statereg & ~(0x30c)) |
+					new_lcbank2 | new_rdrom |
+					new_prewrite | new_wrdefram);
 			return;
 
 		/* 0xc090 - 0xc09f */
@@ -2177,6 +2078,11 @@ io_write(word32 loc, int val, dword64 *cyc_ptr)
 		}
 		UNIMPL_WRITE;
 	case 3:
+		if(((g_c02d_int_crom & 8) == 0) &&
+					((g_c068_statereg & 0x400) == 0)) {
+			// SLOTC3ROM clear, INTC8rom clear: Set INTC8ROM
+			set_statereg(dfcyc, g_c068_statereg | 0x400);
+		}
 		return;
 	case 4:
 		if((g_c02d_int_crom & 0x10) && !(g_c068_statereg & 1)) {
@@ -2191,6 +2097,9 @@ io_write(word32 loc, int val, dword64 *cyc_ptr)
 	case 0xf:
 		if((loc & 0xfff) == 0xfff) {
 			/* cfff */
+			if(g_c068_statereg & 0x400) {
+				set_statereg(dfcyc, g_c068_statereg & (~0x400));
+			}
 			return;
 		}
 		// UNIMPL_WRITE;
@@ -2200,6 +2109,22 @@ io_write(word32 loc, int val, dword64 *cyc_ptr)
 	}
 	printf("Huh2? Write loc: %x\n", loc);
 	exit(-290);
+}
+
+word32
+c3xx_read(dword64 dfcyc, word32 loc)
+{
+	// We may have been marked IO so that we could set INTC8ROM,
+	//  but we still need to return ROM
+	if(((g_c02d_int_crom & 8) == 0) && ((g_c068_statereg & 0x400) == 0)) {
+		// SLOTC3ROM is not set:  Set INTC8ROM
+		set_statereg(dfcyc, g_c068_statereg | 0x400);
+	}
+	if(((g_c02d_int_crom & 8) == 0) || (g_c068_statereg & 1)) {
+		// Access ROM for slot 3
+		return g_rom_fc_ff_ptr[0x3c300 + (loc & 0xff)];
+	}
+	return float_bus(dfcyc);
 }
 
 // IIgs vertical line counters

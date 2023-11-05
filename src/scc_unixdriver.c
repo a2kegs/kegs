@@ -1,4 +1,4 @@
-const char rcsid_scc_macdriver_c[] = "@(#)$KmKId: scc_macdriver.c,v 1.16 2023-05-04 19:32:06+00 kentd Exp $";
+const char rcsid_scc_macdriver_c[] = "@(#)$KmKId: scc_unixdriver.c,v 1.2 2023-08-28 18:10:41+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -12,7 +12,7 @@ const char rcsid_scc_macdriver_c[] = "@(#)$KmKId: scc_macdriver.c,v 1.16 2023-05
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-/* This file contains the Mac serial calls */
+/* This file contains the Mac/Linux calls to a real serial port */
 
 #include "defc.h"
 #include "scc.h"
@@ -23,57 +23,59 @@ const char rcsid_scc_macdriver_c[] = "@(#)$KmKId: scc_macdriver.c,v 1.16 2023-05
 
 extern Scc g_scc[2];
 extern word32 g_c025_val;
+extern char *g_serial_device[2];
 
-#ifdef MAC
-int
-scc_serial_mac_init(int port)
+#ifndef _WIN32
+void
+scc_serial_unix_open(int port)
 {
-	char	str_buf[1024];
 	Scc	*scc_ptr;
-	int	state;
 	int	fd;
 
 	scc_ptr = &(g_scc[port]);
 
-	scc_ptr->state = 0;		/* mark as uninitialized */
+	fd = open(&g_serial_device[port][0], O_RDWR | O_NONBLOCK);
+	scc_ptr->unix_dev_fd = fd;
 
-	/*sprintf(&str_buf[0], "/dev/tty.USA19QW11P1.1"); */
-	snprintf(&str_buf[0], sizeof(str_buf), "/dev/tty.USA19H181P1.1");
-	/* HACK: fix this... */
-
-	fd = open(&str_buf[0], O_RDWR | O_NONBLOCK);
-
-	scc_ptr->host_handle = (void *)(long)fd;
-	scc_ptr->host_handle2 = 0;
-
-	printf("scc_serial_mac_init %d called, fd: %d\n", port, fd);
+	printf("scc_serial_unix_init %d called, fd: %d\n", port, fd);
 
 	if(fd < 0) {
-		scc_ptr->host_handle = (void *)-1;
-		return -1;
+		scc_ptr->unix_dev_fd = -1;
+		scc_ptr->cur_state = -1;	// Failed to open
+		return;
 	}
 
-	scc_serial_mac_change_params(port);
+	scc_serial_unix_change_params(port);
 
-	state = 2;		/* raw serial */
-	scc_ptr->state = state;
-
-	return state;
+	scc_ptr->cur_state = 0;		// Actual Serial device
 }
 
 void
-scc_serial_mac_change_params(int port)
+scc_serial_unix_close(int port)
 {
-	struct termios termios_buf;
 	Scc	*scc_ptr;
 	int	fd;
-	int	csz;
-	int	ret;
 
 	scc_ptr = &(g_scc[port]);
 
-	fd = (long)scc_ptr->host_handle;
-	printf("scc_serial_mac_change_parms port: %d, fd: %d\n", port, fd);
+	fd = scc_ptr->unix_dev_fd;
+	if(fd >= 0) {
+		close(fd);
+	}
+	scc_ptr->unix_dev_fd = -1;
+}
+
+void
+scc_serial_unix_change_params(int port)
+{
+	struct termios termios_buf;
+	Scc	*scc_ptr;
+	int	fd, csz, ret;
+
+	scc_ptr = &(g_scc[port]);
+
+	fd = scc_ptr->unix_dev_fd;
+	printf("scc_serial_unix_change_parms port: %d, fd: %d\n", port, fd);
 	if(fd <= 0) {
 		return;
 	}
@@ -119,7 +121,12 @@ scc_serial_mac_change_params(int port)
 	}
 
 	/* always enabled DTR and RTS control */
-	termios_buf.c_cflag |= CDTR_IFLOW | CRTS_IFLOW;
+#ifdef CRTSCTS
+	termios_buf.c_cflag |= CRTSCTS;			// Linux: CTS/RTS
+#endif
+#ifdef CRTS_IFLOW
+	termios_buf.c_cflag |= CDTR_IFLOW | CRTS_IFLOW;		// Mac: CTS/RTS
+#endif
 
 	printf("fd: %d, baudrate: %d, iflag:%x, oflag:%x, cflag:%x, lflag:%x\n",
 		fd, (int)termios_buf.c_ispeed, (int)termios_buf.c_iflag,
@@ -132,7 +139,7 @@ scc_serial_mac_change_params(int port)
 }
 
 void
-scc_serial_mac_fill_readbuf(int port, int space_left, dword64 dfcyc)
+scc_serial_unix_fill_readbuf(dword64 dfcyc, int port, int space_left)
 {
 	byte	tmp_buf[256];
 	Scc	*scc_ptr;
@@ -141,7 +148,7 @@ scc_serial_mac_fill_readbuf(int port, int space_left, dword64 dfcyc)
 
 	scc_ptr = &(g_scc[port]);
 
-	fd = (long)scc_ptr->host_handle;
+	fd = scc_ptr->unix_dev_fd;
 	if(fd <= 0) {
 		return;
 	}
@@ -152,25 +159,20 @@ scc_serial_mac_fill_readbuf(int port, int space_left, dword64 dfcyc)
 
 	if(ret > 0) {
 		for(i = 0; i < ret; i++) {
-			scc_add_to_readbuf(port, tmp_buf[i], dfcyc);
+			scc_add_to_readbuf(dfcyc, port, tmp_buf[i]);
 		}
 	}
 }
 
 void
-scc_serial_mac_empty_writebuf(int port)
+scc_serial_unix_empty_writebuf(int port)
 {
 	Scc	*scc_ptr;
-	int	fd;
-	int	rdptr;
-	int	wrptr;
-	int	done;
-	int	ret;
-	int	len;
+	int	fd, rdptr, wrptr, done, ret, len;
 
 	scc_ptr = &(g_scc[port]);
 
-	fd = (long)scc_ptr->host_handle;
+	fd = scc_ptr->unix_dev_fd;
 	if(fd <= 0) {
 		return;
 	}
@@ -210,4 +212,4 @@ scc_serial_mac_empty_writebuf(int port)
 		}
 	}
 }
-#endif	/* MAC */
+#endif	/* !_WIN32 */

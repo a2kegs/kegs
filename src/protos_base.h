@@ -11,7 +11,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.141 2023-06-21 21:15:21+00 kentd Exp $";
+const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.154 2023-09-23 17:53:03+00 kentd Exp $";
 #endif
 
 #ifdef __GNUC__
@@ -26,16 +26,18 @@ void dynapro_error(Disk *dsk, const char *fmt, ...) __attribute__ ((
 /* xdriver.c and macdriver.c and windriver.c */
 int win_nonblock_read_stdin(int fd, char *bufptr, int len);
 
-/* special scc_macdriver.c prototypes */
-int scc_serial_mac_init(int port);
-void scc_serial_mac_change_params(int port);
-void scc_serial_mac_fill_readbuf(int port, int space_left, dword64 dfcyc);
-void scc_serial_mac_empty_writebuf(int port);
+/* special scc_unixdriver.c prototypes */
+void scc_serial_unix_open(int port);
+void scc_serial_unix_close(int port);
+void scc_serial_unix_change_params(int port);
+void scc_serial_unix_fill_readbuf(dword64 dfcyc, int port, int space_left);
+void scc_serial_unix_empty_writebuf(int port);
 
 /* special scc_windriver.c prototypes */
-int scc_serial_win_init(int port);
+void scc_serial_win_open(int port);
+void scc_serial_win_close(int port);
 void scc_serial_win_change_params(int port);
-void scc_serial_win_fill_readbuf(int port, int space_left, dword64 dfcyc);
+void scc_serial_win_fill_readbuf(dword64 dfcyc, int port, int space_left);
 void scc_serial_win_empty_writebuf(int port);
 
 /* special joystick_driver.c prototypes */
@@ -146,24 +148,29 @@ void config_init_menus(Cfg_menu *menuptr);
 void config_init(void);
 int config_setup_kegs_file(char *outname, int maxlen, const char **name_ptr);
 int config_expand_path(char *out_ptr, const char *in_ptr, int maxlen);
-void cfg_exit(void);
+char *cfg_exit(int get_status);
 void cfg_err_vprintf(const char *pre_str, const char *fmt, va_list ap);
 void cfg_err_printf(const char *pre_str, const char *fmt, ...);
 void cfg_toggle_config_panel(void);
 void cfg_set_config_panel(int panel);
-void cfg_text_screen_dump(void);
+char *cfg_text_screen_dump(int get_status);
 char *cfg_text_screen_str(void);
+char *cfg_get_serial0_status(int get_status);
+char *cfg_get_serial1_status(int get_status);
 char *cfg_get_current_copy_selection(void);
 void config_vbl_update(int doit_3_persec);
 void config_parse_option(char *buf, int pos, int len, int line);
 void config_parse_bram(char *buf, int pos, int len);
-void cfg_int_updated(int *iptr, int new_val, int old_val);
+void cfg_file_update_rom(const char *str);
+void cfg_file_update_ptr(char **strptr, const char *str, int need_update);
+void cfg_int_update(int *iptr, int new_val);
 void cfg_load_charrom(void);
 void config_load_roms(void);
 void config_parse_config_kegs_file(void);
 void config_generate_config_kegs_name(char *outstr, int maxlen, Disk *dsk, int with_extras);
-void config_write_config_kegs_file(void);
+char *config_write_config_kegs_file(int get_status);
 void insert_disk(int slot, int drive, const char *name, int ejected, const char *partition_name, int part_num, word32 dynamic_blocks);
+dword64 cfg_detect_dc42(byte *bptr, dword64 dsize, dword64 exp_dsize, int slot);
 dword64 cfg_get_fd_size(int fd);
 dword64 cfg_read_from_fd(int fd, byte *bufptr, dword64 dpos, dword64 dsize);
 dword64 cfg_write_to_fd(int fd, byte *bufptr, dword64 dpos, dword64 dsize);
@@ -193,7 +200,7 @@ int cfg_get_disk_name(char *outstr, int maxlen, int type_ext, int with_extras);
 int cfg_get_disk_locked(int type_ext);
 void cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change);
 void cfg_get_base_path(char *pathptr, const char *inptr, int go_up);
-void cfg_name_new_image(void);
+char *cfg_name_new_image(int get_status);
 void cfg_dup_existing_image(word32 slotdrive);
 void cfg_dup_image_selected(void);
 void cfg_validate_image(word32 slotdrive);
@@ -216,14 +223,14 @@ void cfg_file_readdir(const char *pathptr);
 char *cfg_shorten_filename(const char *in_ptr, int maxlen);
 void cfg_fix_topent(Cfg_listhdr *listhdrptr);
 void cfg_file_draw(void);
+void cfg_partition_select_all(void);
 void cfg_partition_selected(void);
-void cfg_file_update_rom(const char *str);
-void cfg_file_update_ptr(const char *str, int need_update);
 void cfg_file_selected(void);
 void cfg_file_handle_key(int key);
 void cfg_draw_menu(void);
 void cfg_newdisk_pick_menu(word32 slotdrive);
 int cfg_control_panel_update(void);
+void cfg_edit_mode_key(int key);
 int cfg_control_panel_update1(void);
 
 
@@ -247,12 +254,14 @@ word32 dis_get_memory_ptr(word32 addr);
 void show_one_toolset(FILE *toolfile, int toolnum, word32 addr);
 void show_toolset_tables(word32 a2bank, word32 addr);
 word32 debug_getnum(const char **str_ptr);
+char *debug_get_filename(const char **str_ptr);
 void debug_help(const char *str);
 void debug_bp(const char *str);
 void debug_bp_set(const char *str);
 void debug_bp_clear(const char *str);
 void debug_bp_clear_all(const char *str);
 void debug_bp_setclr(const char *str, int is_set_clear);
+void debug_soundfile(const char *cmd_str);
 void debug_logpc(const char *str);
 void debug_logpc_on(const char *str);
 void debug_logpc_off(const char *str);
@@ -293,51 +302,57 @@ void scc_reset(void);
 void scc_hard_reset_port(int port);
 void scc_reset_port(int port);
 void scc_regen_clocks(int port);
-void scc_port_init(int port);
-void scc_try_to_empty_writebuf(int port, dword64 dfcyc);
-void scc_try_fill_readbuf(int port, dword64 dfcyc);
+void scc_port_close(int port);
+void scc_port_open(dword64 dfcyc, int port);
+int scc_is_port_closed(dword64 dfcyc, int port);
+char *scc_get_serial_status(int get_status, int port);
+void scc_config_changed(int port, int cfg_changed, int remote_changed, int serial_dev_changed);
 void scc_update(dword64 dfcyc);
-void do_scc_event(int type, dword64 dfcyc);
+void scc_try_to_empty_writebuf(dword64 dfcyc, int port);
+void scc_try_fill_readbuf(dword64 dfcyc, int port);
+void scc_do_event(dword64 dfcyc, int type);
 void show_scc_state(void);
-word32 scc_read_reg(int port, dword64 dfcyc);
-void scc_write_reg(int port, word32 val, dword64 dfcyc);
-void scc_maybe_br_event(int port, dword64 dfcyc);
+word32 scc_read_reg(dword64 dfcyc, int port);
+void scc_write_reg(dword64 dfcyc, int port, word32 val);
+word32 scc_read_data(dword64 dfcyc, int port);
+void scc_write_data(dword64 dfcyc, int port, word32 val);
+word32 scc_do_read_rr2b(void);
+void scc_maybe_br_event(dword64 dfcyc, int port);
 void scc_evaluate_ints(int port);
-void scc_maybe_rx_event(int port, dword64 dfcyc);
+void scc_maybe_rx_event(dword64 dfcyc, int port);
 void scc_maybe_rx_int(int port);
 void scc_clr_rx_int(int port);
 void scc_handle_tx_event(int port);
-void scc_maybe_tx_event(int port, dword64 dfcyc);
+void scc_maybe_tx_event(dword64 dfcyc, int port);
 void scc_clr_tx_int(int port);
 void scc_set_zerocnt_int(int port);
 void scc_clr_zerocnt_int(int port);
-void scc_add_to_readbuf(int port, word32 val, dword64 dfcyc);
-void scc_add_to_readbufv(int port, dword64 dfcyc, const char *fmt, ...);
-void scc_transmit(int port, word32 val);
-void scc_add_to_writebuf(int port, word32 val);
-word32 scc_read_data(int port, dword64 dfcyc);
-void scc_write_data(int port, word32 val, dword64 dfcyc);
+void scc_add_to_readbuf(dword64 dfcyc, int port, word32 val);
+void scc_add_to_readbufv(dword64 dfcyc, int port, const char *fmt, ...);
+void scc_transmit(dword64 dfcyc, int port, word32 val);
+void scc_add_to_writebuf(dword64 dfcyc, int port, word32 val);
 
 
 
 /* scc_socket_driver.c */
-void scc_socket_init(int port);
-void scc_socket_maybe_open_incoming(int port, dword64 dfcyc);
-void scc_socket_open_outgoing(int port, dword64 dfcyc);
-void scc_socket_make_nonblock(int port, dword64 dfcyc);
-void scc_socket_close(int port, int full_close, dword64 dfcyc);
-void scc_accept_socket(int port, dword64 dfcyc);
-void scc_socket_telnet_reqs(int port);
-void scc_socket_fill_readbuf(int port, int space_left, dword64 dfcyc);
-void scc_socket_recvd_char(int port, int c, dword64 dfcyc);
-void scc_socket_empty_writebuf(int port, dword64 dfcyc);
-void scc_socket_modem_write(int port, int c, dword64 dfcyc);
-void scc_socket_do_cmd_str(int port, dword64 dfcyc);
-void scc_socket_send_modem_code(int port, int code, dword64 dfcyc);
-void scc_socket_modem_hangup(int port, dword64 dfcyc);
-void scc_socket_modem_connect(int port, dword64 dfcyc);
-void scc_socket_modem_do_ring(int port, dword64 dfcyc);
-void scc_socket_do_answer(int port, dword64 dfcyc);
+void scc_socket_open(dword64 dfcyc, int port, int cfg);
+void scc_socket_close(int port);
+void scc_socket_close_extended(dword64 dfcyc, int port, int allow_retry);
+void scc_socket_maybe_open(dword64 dfcyc, int port, int must);
+void scc_socket_open_incoming(dword64 dfcyc, int port);
+void scc_socket_open_outgoing(dword64 dfcyc, int port, const char *remote_ip_str, int remote_port);
+void scc_socket_make_nonblock(dword64 dfcyc, int port);
+void scc_accept_socket(dword64 dfcyc, int port);
+void scc_socket_telnet_reqs(dword64 dfcyc, int port);
+void scc_socket_fill_readbuf(dword64 dfcyc, int port, int space_left);
+void scc_socket_recvd_char(dword64 dfcyc, int port, int c);
+void scc_socket_empty_writebuf(dword64 dfcyc, int port);
+void scc_socket_modem_write(dword64 dfcyc, int port, int c);
+void scc_socket_do_cmd_str(dword64 dfcyc, int port);
+void scc_socket_send_modem_code(dword64 dfcyc, int port, int code);
+void scc_socket_modem_connect(dword64 dfcyc, int port);
+void scc_socket_modem_do_ring(dword64 dfcyc, int port);
+void scc_socket_do_answer(dword64 dfcyc, int port);
 
 
 
@@ -345,7 +360,7 @@ void scc_socket_do_answer(int port, dword64 dfcyc);
 
 
 
-/* scc_macdriver.c */
+/* scc_unixdriver.c */
 
 
 
@@ -384,10 +399,10 @@ dword64 iwm_calc_forced_sync(dword64 dval, int forced_bit);
 int iwm_calc_forced_sync_0s(dword64 sync_dval, int bits);
 word32 iwm_read_data(Disk *dsk, dword64 dfcyc);
 void iwm_write_data(Disk *dsk, word32 val, dword64 dfcyc);
-void iwm_start_write(Disk *dsk, word32 bit_pos, word32 val);
-int iwm_start_write_act(Disk *dsk, word32 bit_pos, int num, int delta);
+void iwm_start_write(Disk *dsk, word32 bit_pos, word32 val, int no_prior);
+int iwm_start_write_act(Disk *dsk, word32 bit_pos, int num, int no_prior, int delta);
 void iwm_write_data35(Disk *dsk, word32 val, dword64 dfcyc);
-void iwm_write_end(Disk *dsk, dword64 dfcyc);
+void iwm_write_end(Disk *dsk, int write_through_now, dword64 dfcyc);
 void iwm_write_one_nib(Disk *dsk, int bits, dword64 dfcyc);
 void iwm_recalc_sync_from(Disk *dsk, word32 qtr_track, word32 bit_pos, dword64 dfcyc);
 void sector_to_partial_nib(byte *in, byte *nib_ptr);
@@ -429,32 +444,31 @@ void fixup_brks(void);
 void fixup_hires_on(void);
 void fixup_bank0_2000_4000(void);
 void fixup_bank0_0400_0800(void);
-void fixup_any_bank_any_page(int start_page, int num_pages, byte *mem0rd, byte *mem0wr);
+void fixup_any_bank_any_page(word32 start_page, int num_pages, byte *mem0rd, byte *mem0wr);
 void fixup_intcx(void);
-void fixup_wrdefram(int new_wrdefram);
 void fixup_st80col(dword64 dfcyc);
 void fixup_altzp(void);
 void fixup_page2(dword64 dfcyc);
 void fixup_ramrd(void);
 void fixup_ramwrt(void);
-void fixup_lcbank2(void);
-void fixup_rdrom(void);
-void set_statereg(dword64 dfcyc, int val);
+void fixup_lc(void);
+void set_statereg(dword64 dfcyc, word32 val);
 void fixup_shadow_txt1(void);
 void fixup_shadow_txt2(void);
 void fixup_shadow_hires1(void);
 void fixup_shadow_hires2(void);
 void fixup_shadow_shr(void);
 void fixup_shadow_iolc(void);
-void update_shadow_reg(int val);
+void update_shadow_reg(dword64 dfcyc, word32 val);
 void fixup_shadow_all_banks(void);
 void setup_pageinfo(void);
 void show_bankptrs_bank0rdwr(void);
 void show_bankptrs(int bnk);
 void show_addr(byte *ptr);
 word32 moremem_fix_vector_pull(word32 addr);
-int io_read(word32 loc, dword64 *cyc_ptr);
-void io_write(word32 loc, int val, dword64 *cyc_ptr);
+word32 io_read(word32 loc, dword64 *cyc_ptr);
+void io_write(word32 loc, word32 val, dword64 *cyc_ptr);
+word32 c3xx_read(dword64 dfcyc, word32 loc);
 word32 get_lines_since_vbl(dword64 dfcyc);
 int in_vblank(dword64 dfcyc);
 int read_vid_counters(int loc, dword64 dfcyc);
@@ -562,6 +576,7 @@ void do_c70d(word32 arg0);
 void do_c70a(word32 arg0);
 int do_read_c7(int unit_num, word32 buf, word32 blk);
 int do_write_c7(int unit_num, word32 buf, word32 blk);
+int smartport_memory_write(Disk *dsk, byte *bufptr, dword64 doffset, word32 size);
 int do_format_c7(int unit_num);
 void do_c700(word32 ret);
 
@@ -596,10 +611,10 @@ void sound_set_audio_rate(int rate);
 void sound_reset(dword64 dfcyc);
 void sound_shutdown(void);
 void sound_update(dword64 dfcyc);
-void open_sound_file(void);
-void close_sound_file(void);
-void check_for_range(word32 *addr, int num_samps, int offset);
-void send_sound_to_file(word32 *addr, int shm_pos, int num_samps);
+void sound_file_start(char *filename);
+void sound_file_open(void);
+void sound_file_close(void);
+void send_sound_to_file(word32 *wptr, int shm_pos, int num_samps, int real_samps);
 void show_c030_state(dword64 dfcyc);
 void show_c030_samps(dword64 dfcyc, int *outptr, int num);
 int sound_play_c030(dword64 dfcyc, dword64 dsamp, int *outptr_start, int num_samps);

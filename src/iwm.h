@@ -1,5 +1,5 @@
 #ifdef INCLUDE_RCSID_C
-const char rcsid_iwm_h[] = "@(#)$KmKId: iwm.h,v 1.45 2023-05-04 19:33:31+00 kentd Exp $";
+const char rcsid_iwm_h[] = "@(#)$KmKId: iwm.h,v 1.46 2023-09-23 17:53:09+00 kentd Exp $";
 #endif
 
 /************************************************************************/
@@ -163,7 +163,7 @@ STRUCT(Iwm) {
 	Disk	smartport[MAX_C7_DISKS];
 	dword64	dfcyc_last_fastemul_read;
 	word32	state;
-	int	motor_off_vbl_count;
+	word32	motor_off_vbl_count;
 	word32	forced_sync_bit;
 	word32	last_rd_bit;
 	word32	write_val;

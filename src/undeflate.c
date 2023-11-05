@@ -1,4 +1,4 @@
-const char rcsid_undeflate_c[] = "@(#)$KmKId: undeflate.c,v 1.18 2023-05-21 20:06:24+00 kentd Exp $";
+const char rcsid_undeflate_c[] = "@(#)$KmKId: undeflate.c,v 1.19 2023-09-05 01:33:35+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -1396,8 +1396,8 @@ undeflate_zipfile_make_list(int fd)
 			add_it = cfg_partition_name_check(name_ptr, name_len);
 		}
 
-		//printf("ent:%d name:%s had add_it:%d\n", ent, name_ptr,
-		//				add_it);
+		//printf("ent:%d name:%s len:%d had add_it:%d, part_len:%d\n",
+		//		ent, name_ptr, name_len, add_it, part_len);
 
 		inc = 46 + name_len + extra_len + comment_len;
 		if(add_it) {
@@ -1417,7 +1417,7 @@ undeflate_zipfile_make_list(int fd)
 					// This ends this name at this level
 					if(i > 0) {
 						add_it = 2;
-						name_len = i;
+						name_len = i + 1;
 					} else {
 						add_it = 0;
 					}

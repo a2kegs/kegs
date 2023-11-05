@@ -1,4 +1,4 @@
-const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.142 2023-06-17 20:42:40+00 kentd Exp $";
+const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.150 2023-09-16 20:51:44+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -44,9 +44,14 @@ extern int g_adb_swap_command_option;
 extern int g_limit_speed;
 extern int g_zip_speed_mhz;
 extern int g_force_depth;
-extern int g_raw_serial;
-extern int g_serial_out_masking;
-extern int g_serial_modem[];
+int g_serial_cfg[2] = { 0, 1 };		// Slot 1=0=Real serial (printer?)
+					// Slot 2=1=Virt Modem
+int g_serial_mask[2] = { 0, 0 };
+char *g_serial_remote_ip[2] = { "", "" };	// cfg_init_menus will malloc()
+int g_serial_remote_port[2] = { 9100, 9100 };
+char *g_serial_device[2] = { "/dev/tty.USB.0", "/dev/tty.USB.1" };
+				// cfg_init_menus() will malloc() the above
+int g_serial_win_device[2] = { 0, 0 };		// Disabled
 extern word32 g_mem_size_base;
 extern word32 g_mem_size_exp;
 extern int g_video_line_update_interval;
@@ -117,14 +122,17 @@ int	g_cfg_ignorecase = 0;
 int g_cfg_opts_vals[CFG_MAX_OPTS];
 char g_cfg_opts_str[CFG_PATH_MAX];
 char g_cfg_opt_buf[CFG_OPT_MAXSTR];
+char g_cfg_edit_buf[CFG_OPT_MAXSTR];
 
-char *g_cfg_rom_path = "ROM";
-char *g_cfg_charrom_path = "Undefined";
+char *g_cfg_rom_path = "ROM";			// config_init_menus will malloc
+char *g_cfg_charrom_path = "Undefined";		// config_init_menus will malloc
 int g_cfg_charrom_pos = 0;
 char *g_cfg_file_def_name = "Undefined";
 char **g_cfg_file_strptr = 0;
 int g_cfg_file_min_size = 1024;
 int g_cfg_file_max_size = 2047*1024*1024;
+int	g_cfg_edit_type = 0;
+void	*g_cfg_edit_ptr = 0;
 
 #define MAX_PARTITION_BLK_SIZE		65536
 
@@ -159,6 +167,7 @@ Cfg_menu g_cfg_disk_menu[] = {
 { "s7d9 = ", 0, 0, 0, CFGTYPE_DISK + 0x7080 },
 { "s7d10 = ", 0, 0, 0, CFGTYPE_DISK + 0x7090 },
 { "s7d11 = ", 0, 0, 0, CFGTYPE_DISK + 0x70a0 },
+{ "s7d12 = ", 0, 0, 0, CFGTYPE_DISK + 0x70b0 },
 { "", 0, 0, 0, 0 },
 { "Back to Main Config", g_cfg_main_menu, 0, 0, CFGTYPE_MENU },
 { 0, 0, 0, 0, 0 },
@@ -264,16 +273,31 @@ Cfg_menu g_cfg_charrom_menu[] = {
 
 Cfg_menu g_cfg_serial_menu[] = {
 { "Serial Port Configuration", g_cfg_serial_menu, 0, 0, CFGTYPE_MENU },
-{ "Serial Ports,0,Only use sockets 6501-6502,1,Use real ports if avail",
-		KNMP(g_raw_serial), CFGTYPE_INT },
-{ "Serial Output,0,Send full 8-bit data,1,Mask off high bit",
-		KNMP(g_serial_out_masking), CFGTYPE_INT },
-{ "Modem on port 0 (slot 1),0,Simple socket emulation mode,1,Modem with "
-		"incoming and outgoing emulation", KNMP(g_serial_modem[0]),
-		CFGTYPE_INT },
-{ "Modem on port 1 (slot 2),0,Simple socket emulation mode,1,Modem with "
-		"incoming and outgoing emulation", KNMP(g_serial_modem[1]),
-		CFGTYPE_INT },
+{ "Slot 1 (port 0) settings", 0, 0, 0, 0 },
+{ "  Main setting  ,0,Use Real Device below,1,Use a virtual modem,"
+		"2,Use Remote IP below,3,Use incoming port 6501",
+		KNMP(g_serial_cfg[0]), CFGTYPE_INT },
+{ "  Status        ", (void *)cfg_get_serial0_status, 0, 0, CFGTYPE_FUNC },
+{ "  Real Device   ", KNMP(g_serial_device[0]), CFGTYPE_FILE },
+{ "  Windows Device,0,Disabled,1,COM1,2,COM2,3,COM3,4,COM4",
+		KNMP(g_serial_win_device[0]), CFGTYPE_INT },
+{ "  Remote IP     ", KNMP(g_serial_remote_ip[0]), CFGTYPE_STR },
+{ "  Remote Port   ", KNMP(g_serial_remote_port[0]), CFGTYPE_INT },
+{ "  Serial Mask   ,0,Send full 8-bit data,1,Mask off high bit",
+		KNMP(g_serial_mask[0]), CFGTYPE_INT },
+{ "", 0, 0, 0, 0 },
+{ "Slot 2 (port 1) settings", 0, 0, 0, 0, },
+{ "  Main setting  ,0,Use Real Device below,1,Use a virtual modem,"
+		"2,Use Remote IP below,3,Use incoming port 6502",
+		KNMP(g_serial_cfg[1]), CFGTYPE_INT },
+{ "  Status        ", (void *)cfg_get_serial1_status, 0, 0, CFGTYPE_FUNC },
+{ "  Real Device   ", KNMP(g_serial_device[1]), CFGTYPE_FILE },
+{ "  Windows Device,1,COM1,2,COM2,3,COM3,4,COM4",
+		KNMP(g_serial_win_device[1]), CFGTYPE_INT },
+{ "  Remote IP     ", KNMP(g_serial_remote_ip[1]), CFGTYPE_STR },
+{ "  Remote Port   ", KNMP(g_serial_remote_port[1]), CFGTYPE_INT },
+{ "  Serial Mask   ,0,Send full 8-bit data,1,Mask off high bit",
+		KNMP(g_serial_mask[1]), CFGTYPE_INT },
 { "", 0, 0, 0, 0 },
 { "Back to Main Config", g_cfg_main_menu, 0, 0, CFGTYPE_MENU },
 { 0, 0, 0, 0, 0 },
@@ -446,6 +470,7 @@ config_init_menus(Cfg_menu *menuptr)
 				menuptr->defptr = &(defptr->intval);
 				break;
 			case CFGTYPE_FILE:
+			case CFGTYPE_STR:
 				str_ptr = (char **)menuptr->ptr;
 				str = *str_ptr;
 				// We need to malloc this string since all
@@ -617,13 +642,17 @@ config_expand_path(char *out_ptr, const char *in_ptr, int maxlen)
 	return pos;
 }
 
-void
-cfg_exit()
+char *
+cfg_exit(int get_status)
 {
 	/* printf("In cfg exit\n"); */
+	if(get_status) {
+		return 0;
+	}
 	if(g_rom_version >= 1) {
 		cfg_set_config_panel(0);
 	}
+	return 0;
 }
 
 void
@@ -715,24 +744,28 @@ cfg_set_config_panel(int panel)
 	g_adb_repeat_vbl = g_vbl_count + 60;
 }
 
-void
-cfg_text_screen_dump()
+char *
+cfg_text_screen_dump(int get_status)
 {
 	FILE	*ofile;
 	char	*bufptr;
 	char	*filename;
 
+	if(get_status) {
+		return 0;
+	}
 	filename = "kegs.screen.dump";
 	printf("Writing text screen to the file %s\n", filename);
 	ofile = fopen(filename, "w");
 	if(ofile == 0) {
 		fatal_printf("Could not write to file %s, (%d)\n", filename,
 				errno);
-		return;
+		return 0;
 	}
 	bufptr = cfg_text_screen_str();
 	fputs(bufptr, ofile);
 	fclose(ofile);
+	return 0;
 }
 
 char g_text_screen_buf[2100] = { 0 };
@@ -779,6 +812,18 @@ cfg_text_screen_str()
 }
 
 char *
+cfg_get_serial0_status(int get_status)
+{
+	return scc_get_serial_status(get_status, 0);
+}
+
+char *
+cfg_get_serial1_status(int get_status)
+{
+	return scc_get_serial_status(get_status, 1);
+}
+
+char *
 cfg_get_current_copy_selection()
 {
 	return &g_text_screen_buf[0];
@@ -789,7 +834,7 @@ config_vbl_update(int doit_3_persec)
 {
 	if(doit_3_persec) {
 		if(g_config_kegs_auto_update && g_config_kegs_update_needed) {
-			config_write_config_kegs_file();
+			(void)config_write_config_kegs_file(0);
 		}
 	}
 	return;
@@ -802,7 +847,7 @@ config_parse_option(char *buf, int pos, int len, int line)
 	Cfg_defval *defptr;
 	int	*iptr;
 	char	*nameptr;
-	int	num_equals, type, val, c, old_val;
+	int	num_equals, type, val, c;
 	int	i;
 
 // warning: modifies buf (turns spaces to nulls)
@@ -864,13 +909,11 @@ config_parse_option(char *buf, int pos, int len, int line)
 		/* use strtol */
 		val = (int)strtol(&buf[pos], 0, 0);
 		iptr = (int *)menuptr->ptr;
-		old_val = *iptr;
-		*iptr = val;
-		cfg_int_updated(iptr, val, old_val);
+		cfg_int_update(iptr, val);
 		break;
 	case CFGTYPE_FILE:
-		g_cfg_file_strptr = (char **)menuptr->ptr;
-		cfg_file_update_ptr(&buf[pos], 0);
+	case CFGTYPE_STR:
+		cfg_file_update_ptr(menuptr->ptr, &buf[pos], 0);
 		break;
 	default:
 		printf("Config file variable %s is unknown type: %d\n",
@@ -914,13 +957,92 @@ config_parse_bram(char *buf, int pos, int len)
 }
 
 void
-cfg_int_updated(int *iptr, int new_val, int old_val)
+cfg_file_update_rom(const char *str)
 {
+	cfg_file_update_ptr(&g_cfg_rom_path, str, 1);
+}
+
+void
+cfg_file_update_ptr(char **strptr, const char *str, int need_update)
+{
+	char	*newstr;
+	int	remote_changed, serial_changed;
+	int	i;
+
+	// Update whatever g_cfg_file_strptr points to.  If changing
+	//  ROM path or Charrom, then do the proper updates
+
+	newstr = kegs_malloc_str(str);
+	if(!strptr) {
+		return;
+	}
+	if(*strptr) {
+		free(*strptr);
+	}
+	*strptr = newstr;
+	if(strptr == &(g_cfg_rom_path)) {
+		printf("Updated ROM file\n");
+		load_roms_init_memory();
+	}
+	if(strptr == &(g_cfg_charrom_path)) {
+		printf("Updated Char ROM file\n");
+		cfg_load_charrom();
+	}
+	for(i = 0; i < 2; i++) {
+		remote_changed = 0;
+		serial_changed = 0;
+		if(strptr == &g_serial_remote_ip[i]) {
+			remote_changed = 1;
+		}
+		if(strptr == &g_serial_device[i]) {
+			serial_changed = 1;
+		}
+		if(remote_changed || serial_changed) {
+			scc_config_changed(i, 0, remote_changed,
+								serial_changed);
+		}
+	}
+	if(need_update) {
+		g_config_kegs_update_needed = 1;
+		printf("Set g_config_kegs_update_needed = 1\n");
+	}
+}
+
+void
+cfg_int_update(int *iptr, int new_val)
+{
+	int	old_val, cfg_changed, remote_changed, serial_changed;
+	int	i;
+
 	// Called to handle an integer being changed in the F4 config menus
 	//  where it's value may need special handling
 
-	if((iptr == &g_cfg_charrom_pos) && (old_val != new_val)) {
+	old_val = *iptr;
+	*iptr = new_val;
+	if(old_val == new_val) {
+		return;
+	}
+	if(iptr == &g_cfg_charrom_pos) {
 		cfg_load_charrom();
+	}
+
+	for(i = 0; i < 2; i++) {
+		remote_changed = 0;
+		serial_changed = 0;
+		cfg_changed = 0;
+		if(iptr == &g_serial_cfg[i]) {
+			cfg_changed = 1;
+		}
+		if(iptr == &g_serial_remote_port[i]) {
+			remote_changed = 1;
+		}
+		if(iptr == &g_serial_win_device[i]) {
+			serial_changed = 1;
+		}
+		if(cfg_changed || remote_changed || serial_changed) {
+			scc_config_changed(i, cfg_changed, remote_changed,
+							serial_changed);
+		}
 	}
 }
 
@@ -1024,8 +1146,8 @@ config_load_roms()
 	/*  Apple II compatibility without distributing ROMs */
 	if(g_rom_version == 0) {			// Apple //e
 		for(i = 0; i < 256; i++) {
+			// Place Disk II PROM in slot 6
 			g_rom_cards_ptr[0x600 + i] = g_rom_fc_ff_ptr[0x38600+i];
-			g_rom_cards_ptr[0x300 + i] = g_rom_fc_ff_ptr[0x3c300+i];
 		}
 	} else {
 		for(i = 0; i < 256; i++) {
@@ -1348,8 +1470,8 @@ config_generate_config_kegs_name(char *outstr, int maxlen, Disk *dsk,
 	snprintf(str, maxlen - (str - outstr), "%s", dsk->name_ptr);
 }
 
-void
-config_write_config_kegs_file()
+char *
+config_write_config_kegs_file(int get_status)
 {
 	FILE	*fconf;
 	Disk	*dsk;
@@ -1359,12 +1481,15 @@ config_write_config_kegs_file()
 	int	defval, curval, type, slot, drive;
 	int	i;
 
+	if(get_status) {
+		return 0;
+	}
 	printf("Writing config.kegs file to %s\n", g_config_kegs_name);
 
 	fconf = fopen(g_config_kegs_name, "w+");
 	if(fconf == 0) {
 		halt_printf("cannot open %s!  Stopping!\n", g_config_kegs_name);
-		return;
+		return 0;
 	}
 
 	fprintf(fconf, "# KEGS configuration file version %s\n",
@@ -1411,7 +1536,7 @@ config_write_config_kegs_file()
 								curval);
 			}
 		}
-		if(type == CFGTYPE_FILE) {
+		if((type == CFGTYPE_FILE) || (type == CFGTYPE_STR)) {
 			curstr = *((char **)menuptr->ptr);
 			defstr = *((char **)menuptr->defptr);
 			if(strcmp(curstr, defstr) != 0) {
@@ -1429,6 +1554,7 @@ config_write_config_kegs_file()
 	fclose(fconf);
 
 	g_config_kegs_update_needed = 0;
+	return 0;
 }
 
 void
@@ -1708,14 +1834,13 @@ insert_disk(int slot, int drive, const char *name, int ejected,
 	}
 	if(!image_type) {
 		/* See if it might be the Mac diskcopy format */
-		dtmp = ((word32)buf_2img[0x40] << 24) | (buf_2img[0x41] << 16) |
-				(buf_2img[0x42] << 8) | buf_2img[0x43];
-		if((dsize >= (exp_dsize + 0x54)) && (dtmp == exp_dsize)) {
-			/* It's diskcopy since data size field matches */
+		dtmp = cfg_detect_dc42(&buf_2img[0], dsize, exp_dsize, slot);
+		if(dtmp != 0) {
+			// It's diskcopy 4.2
 			printf("Image named %s is in Mac diskcopy format\n",
 								dsk->name_ptr);
 			dsk->dimage_start += 0x54;
-			dsk->dimage_size = exp_dsize;
+			dsk->dimage_size = dtmp;
 			image_type = DSK_TYPE_PRODOS;	/* ProDOS */
 		}
 	}
@@ -1800,6 +1925,51 @@ insert_disk(int slot, int drive, const char *name, int ejected,
 	}
 
 	iwm_move_to_ftrack(dsk, save_ftrack, 0, 0);
+}
+
+dword64
+cfg_detect_dc42(byte *bptr, dword64 dsize, dword64 exp_dsize, int slot)
+{
+	dword64	ddata_size, dtag_size;
+	int	i;
+
+	// Detect Mac DiskCopy4.2 disk image (often .dmg or .dc or .dc42)
+	// bptr points to just the first 512 bytes of the file
+
+	if((bptr[0x52] != 1) || (bptr[0x53] != 0)) {
+		return 0;	// No "magic number 0x01, 0x00 for DiskCopy4.2
+	}
+	if(bptr[0] > 0x3f) {
+		return 0;	// not a valid image name length (1-0x3f)
+	}
+	ddata_size = 0;
+	dtag_size = 0;
+	for(i = 0; i < 4; i++) {
+		ddata_size = (ddata_size << 8) | bptr[0x40 + i];
+		dtag_size = (dtag_size << 8) | bptr[0x44 + i];
+	}
+	if((dtag_size != 0) && (dtag_size != ((ddata_size >> 9) * 12))) {
+		return 0;	// Tags are either 0, or 12 bytes per block
+	}
+	if(slot == 7) {
+		if(ddata_size < 140*1024) {
+			return 0;		// Allow any size >=140K slot 7
+		}
+	} else if(ddata_size != exp_dsize) {
+		return 0;			// Must be 140K or 800K
+	}
+
+	if(ddata_size > (dsize - 0x54)) {
+		return 0;	// data_size doesn't make sense
+	}
+	if((ddata_size & 0x1ff) || ((ddata_size >> 31) > 1)) {
+		return 0;	// data_size not a multiple of 512 bytes
+	}
+	if((ddata_size + dtag_size + 0x54) != dsize) {
+		return 0;	// File doesn't appear to be well-formed
+	}
+
+	return ddata_size;
 }
 
 dword64
@@ -2491,13 +2661,20 @@ void
 cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change)
 {
 	char	valbuf[CFG_OPT_MAXSTR];
+	char	*(*fn_ptr)(int);
 	int	*iptr;
 	char	**str_ptr;
 	const char *menustr;
 	char	*curstr, *defstr, *str, *outstr;
+	void	*edit_ptr;
 	int	val, num_opts, opt_num, bufpos, outpos, curval, defval, type;
-	int	type_ext, opt_get_str, separator, len, c, old_val, locked;
+	int	type_ext, opt_get_str, separator, len, c, locked;
 	int	i;
+
+	// For this menu_pos line, create output in g_cfg_opt_buf[] string
+	//  Highlight it if menu_pos==highlight_pos
+	// Allow arrows to modify the currently selected item of a list using
+	//  change: -1 moves to a previous item, +1 moves to the next
 
 	g_cfg_opt_buf[0] = 0;
 
@@ -2542,7 +2719,7 @@ cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change)
 		}
 	}
 
-	if(type == CFGTYPE_FILE) {
+	if((type == CFGTYPE_FILE) || (type == CFGTYPE_STR)) {
 		str_ptr = (char **)menuptr->ptr;
 		curstr = *str_ptr;
 		str_ptr = (char **)menuptr->defptr;
@@ -2590,7 +2767,7 @@ cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change)
 #endif
 	while(++i < len) {
 		c = menustr[i];
-		if(c == separator) {
+		if(c == separator) {		// ','?
 			if(i == 0) {
 				continue;
 			}
@@ -2648,7 +2825,8 @@ cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change)
 	// Decide what to display on the "right" side
 	str = 0;
 	opt_num = -1;
-	if(type == CFGTYPE_INT || type == CFGTYPE_FILE) {
+	if((type == CFGTYPE_INT) || (type == CFGTYPE_FILE) ||
+						(type == CFGTYPE_STR)) {
 		g_cfg_opt_buf[bufpos++] = ' ';
 		g_cfg_opt_buf[bufpos++] = '=';
 		g_cfg_opt_buf[bufpos++] = ' ';
@@ -2677,9 +2855,7 @@ cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change)
 				/* HACK: min_val, max_val testing here */
 			}
 			iptr = (int *)menuptr->ptr;
-			old_val = *iptr;
-			*iptr = curval;
-			cfg_int_updated(iptr, curval, old_val);
+			cfg_int_update(iptr, curval);
 		}
 		g_config_kegs_update_needed = 1;
 	}
@@ -2690,7 +2866,12 @@ cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change)
 	}
 #endif
 
-	if(opt_num >= 0) {
+	edit_ptr = g_cfg_edit_ptr;
+	if((edit_ptr == menuptr->ptr) && edit_ptr) {
+		// Just show the current edit string
+		str = cfg_shorten_filename(&(g_cfg_edit_buf[0]), 68 - 1);
+		cfg_strlcat(str, "\b \b", CFG_PATH_MAX);
+	} else if(opt_num >= 0) {
 		str = &(g_cfg_opts_str[0]);
 	} else {
 		if(type == CFGTYPE_INT) {
@@ -2700,10 +2881,20 @@ cfg_parse_menu(Cfg_menu *menuptr, int menu_pos, int highlight_pos, int change)
 			str = &(g_cfg_opts_str[0]);
 			(void)cfg_get_disk_name(str, CFG_PATH_MAX, type_ext, 1);
 			str = cfg_shorten_filename(str, 68);
-		} else if (type == CFGTYPE_FILE) {
-			str = &(g_cfg_opts_str[0]);
-			snprintf(str, CFG_PATH_MAX, "%s", curstr);
-			str = cfg_shorten_filename(str, 68);
+		} else if ((type == CFGTYPE_FILE) || (type == CFGTYPE_STR)) {
+			str = cfg_shorten_filename(curstr, 68);
+		} else if(type == CFGTYPE_FUNC) {
+			fn_ptr = (char *(*)(int))menuptr->ptr;
+			str = "";
+			curstr = (*fn_ptr)(1);
+			if(curstr) {
+				g_cfg_opt_buf[bufpos++] = ' ';
+				g_cfg_opt_buf[bufpos++] = ':';
+				g_cfg_opt_buf[bufpos++] = ' ';
+				g_cfg_opt_buf[bufpos] = 0;
+				str = cfg_shorten_filename(curstr, 68);
+				free(curstr);
+			}
 		} else {
 			str = "";
 		}
@@ -2818,16 +3009,20 @@ cfg_get_base_path(char *pathptr, const char *inptr, int go_up)
 	//		pathptr, is_dotdot, add_dotdot);
 }
 
-void
-cfg_name_new_image()
+char *
+cfg_name_new_image(int get_status)
 {
 	// Called from menu to create a new disk image, this will pop up the
 	//  file selection dialog.  Once name is selected,
 	//  cfg_create_new_image() is called.
+	if(get_status) {
+		return 0;
+	}
 	printf("cfg_name_new_image called!\n");
 	g_cfg_slotdrive = g_cfg_newdisk_slotdrive;
 	g_cfg_newdisk_select = 1;
 	cfg_file_init();
+	return 0;
 }
 
 void
@@ -3094,16 +3289,9 @@ cfg_file_add_dirent_unique(Cfg_listhdr *listhdrptr, const char *nameptr,
 		direntptr = &(listhdrptr->direntptr[i]);
 		this_len = (int)strlen(direntptr->name);
 		if(cfg_str_match(direntptr->name, nameptr, namelen) == 0) {
-			// It's a match...check is_dir
-			if(is_dir) {
-				if((namelen == (this_len - 1)) &&
-					(direntptr->name[namelen] == '/')) {
-					return;		// It's a match
-				}
-			} else {
-				if(namelen == this_len) {
-					return;
-				}
+			// It's a match...check len
+			if(namelen == this_len) {
+				return;
 			}
 		}
 	}
@@ -3131,7 +3319,7 @@ cfg_file_add_dirent(Cfg_listhdr *listhdrptr, const char *nameptr, int is_dir,
 	ptr = malloc(namelen+1+is_dir);
 	cfg_strncpy(ptr, nameptr, namelen+1);
 	if(is_dir) {
-		strcat(ptr, "/");
+		cfg_strlcat(ptr, "/", namelen + 1 + is_dir);
 	}
 #if 0
 	printf("...file entry %d is %s\n", g_cfg_dirlist.last, ptr);
@@ -3310,10 +3498,7 @@ cfg_file_readdir(const char *pathptr)
 	mode_t	fmt;
 	char	*str;
 	const char *tmppathptr;
-	int	size;
-	int	ret;
-	int	is_dir, is_gz;
-	int	len;
+	int	size, ret, is_dir, is_gz, len;
 	int	i;
 
 	if(!strncmp(pathptr, &g_cfg_file_cachedpath[0], CFG_PATH_MAX) &&
@@ -3647,6 +3832,42 @@ cfg_file_draw()
 }
 
 void
+cfg_partition_select_all()
+{
+	word32	slot_drive;
+	int	part_path_len, curent;
+
+	slot_drive = g_cfg_slotdrive;
+	part_path_len = (int)strlen(&g_cfg_part_path[0]);
+	curent = g_cfg_partitionlist.curent;
+	while(1) {
+		g_cfg_slotdrive = slot_drive;
+		g_cfg_partitionlist.curent = curent;
+		cfg_partition_selected();
+		if(g_cfg_slotdrive != 0) {
+			// Something went wrong, get out
+			return;
+		}
+		slot_drive++;
+		curent++;
+		g_cfg_part_path[part_path_len] = 0;
+		if(curent >= g_cfg_partitionlist.last) {
+			return;
+		}
+		if((slot_drive >> 8) == 7) {
+			if((slot_drive & 0xff) >= MAX_C7_DISKS) {
+				return;
+			}
+			if((slot_drive & 0xff) >= 12) {
+				return;
+			}
+		} else if((slot_drive & 0xff) >= 2) {
+			return;
+		}
+	}
+}
+
+void
 cfg_partition_selected()
 {
 	char	*str;
@@ -3692,42 +3913,6 @@ cfg_partition_selected()
 	g_cfg_slotdrive = 0;
 	g_cfg_newdisk_select = 0;
 	g_cfg_select_partition = -1;
-}
-
-void
-cfg_file_update_rom(const char *str)
-{
-	g_cfg_file_strptr = &(g_cfg_rom_path);
-	cfg_file_update_ptr(str, 1);
-}
-
-void
-cfg_file_update_ptr(const char *str, int need_update)
-{
-	char	*newstr;
-
-	// Update whatever g_cfg_file_strptr points to.  If changing
-	//  ROM path or Charrom, then do the proper updates
-
-	newstr = kegs_malloc_str(str);
-	if(!g_cfg_file_strptr) {
-		return;
-	}
-	if(*g_cfg_file_strptr) {
-		free(*g_cfg_file_strptr);
-	}
-	*g_cfg_file_strptr = newstr;
-	if(g_cfg_file_strptr == &(g_cfg_rom_path)) {
-		printf("Updated ROM file\n");
-		load_roms_init_memory();
-	}
-	if(g_cfg_file_strptr == &(g_cfg_charrom_path)) {
-		printf("Updated Char ROM file\n");
-		cfg_load_charrom();
-	}
-	if(need_update) {
-		g_config_kegs_update_needed = 1;
-	}
 }
 
 void
@@ -3813,7 +3998,7 @@ cfg_file_selected()
 			g_cfg_newdisk_select = 0;
 		}
 	} else {
-		cfg_file_update_ptr(&g_cfg_file_path[0], 1);
+		cfg_file_update_ptr(g_cfg_file_strptr, &g_cfg_file_path[0], 1);
 		g_cfg_slotdrive = 0;
 		g_cfg_newdisk_select = 0;
 	}
@@ -3823,7 +4008,7 @@ void
 cfg_file_handle_key(int key)
 {
 	Cfg_listhdr *listhdrptr;
-	int	len, lowkey;
+	int	len, lowkey, got_match_key, is_cmd_key_down;
 
 	// Modes: g_cfg_slotdrive: 1 to 0xfff: File selection dialog
 	//		otherwise: normal menu being shown
@@ -3842,15 +4027,21 @@ cfg_file_handle_key(int key)
 	}
 
 	listhdrptr = &g_cfg_dirlist;
+	is_cmd_key_down = 0;
 	if(g_cfg_select_partition > 0) {
 		listhdrptr = &g_cfg_partitionlist;
+		is_cmd_key_down = adb_is_cmd_key_down() &&
+					((g_cfg_slotdrive & 0xfff) != 0xfff);
 	}
 	lowkey = tolower(key);
-	if((g_cfg_file_pathfield == 0) && (lowkey >= 'a') && (lowkey <= 'z')) {
+	got_match_key = 0;
+	if((g_cfg_file_pathfield == 0) && (lowkey >= 'a') && (lowkey <= 'z') &&
+						!is_cmd_key_down) {
 		/* jump to file starting with this letter */
 		g_cfg_file_match[0] = key;
 		g_cfg_file_match[1] = 0;
 		g_cfg_dirlist.invalid = 1;	/* re-read directory */
+		got_match_key = 1;
 	}
 
 	switch(key) {
@@ -3881,6 +4072,11 @@ cfg_file_handle_key(int key)
 		//printf("handling return press\n");
 		cfg_file_selected();
 		break;
+	case 0x61:	/* 'a' */
+		if(is_cmd_key_down && (g_cfg_select_partition > 0)) {
+			cfg_partition_select_all();
+		}
+		break;
 	case 0x09:	/* tab */
 		g_cfg_file_pathfield = !g_cfg_file_pathfield;
 		if(g_cfg_select_partition > 0) {
@@ -3900,7 +4096,9 @@ cfg_file_handle_key(int key)
 		}
 		break;
 	default:
-		printf("key: %02x\n", key);
+		if(!got_match_key) {
+			printf("key: %02x\n", key);
+		}
 	}
 #if 0
 	printf("curent: %d, topent: %d, last: %d\n",
@@ -3994,7 +4192,9 @@ cfg_draw_menu()
 	}
 	if((g_cfg_slotdrive & 0xfff) > 0) {
 		cfg_printf("  Edit Path: \bTAB\b");
-		if((g_cfg_newdisk_type == 3) || !g_cfg_newdisk_select) {
+		if(g_cfg_select_partition > 0) {
+			cfg_printf("  (\bCmd\b-\bA\b to mount all)");
+		} else if((g_cfg_newdisk_type == 3) || !g_cfg_newdisk_select) {
 			// Dynamic ProDOS, select a directory
 			cfg_printf("  (\bCmd\b-\bEnter\b for DynaPro)");
 		}
@@ -4055,11 +4255,48 @@ cfg_control_panel_update()
 	return ret;
 }
 
+void
+cfg_edit_mode_key(int key)
+{
+	char	*new_str;
+	int	*iptr;
+	int	len, ival;
+
+	len = (int)strlen(&g_cfg_edit_buf[0]);
+	if(key == 0x0d) {		// Return
+		// Try to accept the change
+		new_str = kegs_malloc_str(&g_cfg_edit_buf[0]);
+		if(g_cfg_edit_type == CFGTYPE_STR) {
+			cfg_file_update_ptr(g_cfg_edit_ptr, new_str, 1);
+		} else if(g_cfg_edit_type == CFGTYPE_INT) {
+			ival = strtol(&g_cfg_edit_buf[0], 0, 0);
+			iptr = (int *)g_cfg_edit_ptr;
+			cfg_int_update(iptr, ival);
+		}
+		g_cfg_edit_ptr = 0;
+		g_config_kegs_update_needed = 1;
+	} else if(key == 0x1b) {	// ESC
+		g_cfg_edit_ptr = 0;	// Abort out of edit mode, no changes
+	} else if((key == 0x08) || (key == 0x7f)) {	// Left arrow or Delete
+		len--;
+		if(len >= 0) {
+			g_cfg_edit_buf[len] = 0;
+		}
+	} else if((key >= 0x20) && (key < 0x7f)) {
+		if(len < (CFG_OPT_MAXSTR - 3)) {
+			g_cfg_edit_buf[len] = key;
+			g_cfg_edit_buf[len+1] = 0;
+		}
+	}
+}
+
 int
 cfg_control_panel_update1()
 {
-	void	(*fn_ptr)(void);
+	char	*(*fn_ptr)(int);
 	void	*ptr;
+	char	**str_ptr;
+	int	*iptr;
 	int	type, key;
 
 	while(g_config_control_panel) {
@@ -4080,6 +4317,10 @@ cfg_control_panel_update1()
 		// If we get here, we got a key, figure out what to do with it
 		if(g_cfg_slotdrive & 0xfff) {
 			cfg_file_handle_key(key);
+			continue;
+		}
+		if(g_cfg_edit_ptr) {
+			cfg_edit_mode_key(key);
 			continue;
 		}
 
@@ -4115,14 +4356,34 @@ cfg_control_panel_update1()
 				cfg_file_init();
 				break;
 			case CFGTYPE_FUNC:
-				fn_ptr = (void (*)(void))ptr;
-				(*fn_ptr)();
+				fn_ptr = (char * (*)(int))ptr;
+				(void)(*fn_ptr)(0);
 				break;
 			case CFGTYPE_FILE:
 				g_cfg_slotdrive = 0xfff;
 				g_cfg_file_def_name = *((char **)ptr);
 				g_cfg_file_strptr = (char **)ptr;
 				cfg_file_init();
+				break;
+			case CFGTYPE_STR:
+				str_ptr = (char **)ptr;
+				if(str_ptr) {
+					g_cfg_edit_type = type & 0xf;
+					g_cfg_edit_ptr = str_ptr;
+					cfg_strncpy(&g_cfg_edit_buf[0],
+						*str_ptr, CFG_OPT_MAXSTR);
+				}
+				break;
+			case CFGTYPE_INT:
+				// If there are no ',' in the menu str, then
+				//  allow user to enter a manual number
+				if(!strchr(g_menuptr[g_menu_line].str, ',')) {
+					g_cfg_edit_type = type & 0xf;
+					g_cfg_edit_ptr = ptr;
+					iptr = (int *)ptr;
+					snprintf(&g_cfg_edit_buf[0],
+						CFG_OPT_MAXSTR, "%d", *iptr);
+				}
 			}
 			break;
 		case 0x1b:

@@ -1,5 +1,5 @@
 #ifdef INCLUDE_RCSID_C
-const char rcsid_defc_h[] = "@(#)$KmKId: defc.h,v 1.138 2023-06-16 19:32:42+00 kentd Exp $";
+const char rcsid_defc_h[] = "@(#)$KmKId: defc.h,v 1.140 2023-09-23 17:53:43+00 kentd Exp $";
 #endif
 
 /************************************************************************/
@@ -222,7 +222,7 @@ STRUCT(Dbg_longcmd) {
 
 STRUCT(Emustate_intlist) {
 	const char *str;
-	int	*iptr;
+	word32	*iptr;
 };
 
 STRUCT(Emustate_dword64list) {
@@ -264,7 +264,7 @@ STRUCT(Lzw_state) {
 #define C041_EN_MOUSE		0x01
 
 /* WARNING: SCC1 and SCC0 interrupts must be in this order for scc.c */
-/*  This order matches the SCC hardware */
+/*  This order matches the SCC hardware, and SCC1_ZEROCNT must be 0x0001 */
 #define IRQ_PENDING_SCC1_ZEROCNT	0x00001
 #define IRQ_PENDING_SCC1_TX		0x00002
 #define IRQ_PENDING_SCC1_RX		0x00004

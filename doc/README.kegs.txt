@@ -1,5 +1,5 @@
 
-KEGS: Kent's Emulated GS version 1.29
+KEGS: Kent's Emulated GS version 1.30
 http://kegs.sourceforge.net/
 
 What is this?
@@ -43,7 +43,7 @@ reboot, then the XMAS demo will start).
 
 Apple IIgs programs need Command and Option keys, and these sometimes are
 used by windowing systems on Linux and Windows.  F1 is always Command (or
-Open-Apple) and F2 is always Option (or closed-Apple), and F3 is an alternate
+Open-Apple) and F2 is always Option (or closed-Apple), and F3 is an alias
 for ESC.  So entering the IIgs control panel can be done with Ctrl-F1-F3.
 
 Press F5 to toggle the status display.  Press F6 to toggle speed between
@@ -224,7 +224,7 @@ access it)!
 
 If you do not have any disk mounted in s7d1, KEGS will jump into the monitor.
 To boot slot 6 (or slot 5), use the Apple IIgs Control Panel by pressing
-Ctrl-Command-ESC.
+Ctrl-Command-ESC (Ctrl-F1-F3 on Windows, for example).
 
 Support for 5.25" Woz nibblized images is limited to using provided images--
 KEGS cannot create new images currently.
@@ -243,7 +243,7 @@ Key summary:
 
 F1:	Alias of Command
 F2:	Alias of Option
-F3:	Alias of ESC for OS/2 compatibility.
+F3:	Alias of ESC for Windows compatibility.
 F4:	Configuration Panel
 F5:	Toggle status lines on/off
 F6:	Toggle through the 4 speeds: Unlimited, 1MHz, 2.8MHz, 8.0MHz (ZipGS)
@@ -829,76 +829,18 @@ If your display is not using shared memory, audio defaults to off unless
 you override it with "-audio 1".
 
 Mockingboard emulation is just for the AY8913 sound chip, not for the
-SC01 speech chip.  To use the Mockingboard, you must do Ctrl-Cmd-ESC to
-get to the IIgs control panel, select Control Panel, then Slots, then
-set slot 4 to "Your card".  Make sure you press return.  Then get out,
-and then do Ctrl-Cmd-Reset.  The reset is a limitation of the IIgs ROM, it
-often doesn't seem to make proper register changes until the next Reset).
+SC01 speech chip.  To use the Mockingboard, you must do Ctrl-Cmd-ESC
+(Ctrl-F1-F3 on Windows, for example) to get to the IIgs control panel,
+select Control Panel, then Slots, then set slot 4 to "Your card".  Make
+sure you press return.  Then get out, and then do Ctrl-Cmd-Reset.  The
+reset is a limitation of the IIgs ROM, it often doesn't seem to make
+proper register changes until the next Reset).
 
 
 SCC (Serial Port) emulation:
 ---------------------------
 
-KEGS emulates the two serial ports on a IIgs as being two Unix sockets.
-Port 1 (printer port) is at socket address 6501, and port 2 (modem)
-is at socket address 6502.
-
-By default, slot 1 is emulated using a simple receive socket, and slot 2
-emulates a Virtual Modem.
-
-A Virtual Modem means KEGS acts as if a modem is on the serial port
-allowing Apple II communcation programs to fully work, but connected to
-internet-enabled sockets.  KEGS emulates a "Hayes- Compatible" modem,
-meaning it accepts "AT" commands.  You can use KEGS to connect to free
-telnet-BBSs, or run a BBS program on KEGS and become a telnet BBS yourself.
-
-The two main AT commands are: ATDT for dialing out, and ATA for receiving
-calls.  To dial out, enter "ATDThostname", or for example,
-"ATDTboycot.no-ip.com" (which is down at the moment, unfortunately).
-You can also enter an IP address, like "ATDT127.0.0.1".  On a Mac, to
-create a telnet server to allow telnet connections (do not use over the
-internet, but on a private network behind a firewall, this should be
-fine), in a Terminal window type: "sudo /usr/libexec/telnetd -debug".
-You must then enable telnet on port 23 through your Mac OS X Firewall in
-the System Preferences->Sharing->Firewall page (just add port 23 as
-open--you'll need to use the "New..." button and then select Other for
-Port Name, and enter Port Number as 23). Then from KEGS in a
-communications program, do "ATDT127.0.0.1", and then log-in to your Mac.
-
-KEGS also accepts incoming "calls".  Start KEGS, and initialize the
-Virtual Modem with some AT command (ATZ resets all state, and is a useful
-start).  KEGS now has a socket port open, 6502 for slot 2, which you
-can connect to using any telnet program.  In a Terminal window, then
-type "telnet 127.0.0.1 6502" and you will connect to KEGS.  The Virtual
-Modem then starts printing "RING" every 2 seconds until you answer with
-"ATA".  You are now connected.  I have not tried BBS programs, but have
-made connections with ProTERM.
-
-On Windows XP SP2, when KEGS tries to open this incoming socket, you'll
-need to enable it and click Unblock to the dialog that Windows pops up.
-If you do not want incoming connections, you can block it instead.
-
-Once connected, you can go back to talking to the Virtual Modem by
-pressing + three times quickly (+++), and then not type anything for a second.
-This goes back to the AT-command mode.  You can now "ATH" to hang up, or
-"ATO" to go back online.
-
-On Windows, the socket code is very preliminary and there are problems
-receiving connections.
-
-KEGS also supports an older, simpler socket interface, which it defaults
-to using on slot 1.  In KEGS, from APPLESOFT, if you PR#1, all output will
-then be sent to socket port 6501.  You can see it by connecting to the
-port using telnet.  In another terminal window, do: "telnet localhost 6501"
-and then you will see all the output going to the "printer".
-
-Under APPLESOFT, you can PR#1 and IN#1.  This gets input from the
-socket also.  You can type in the telnet window, it will be sent on
-to the emulated IIgs.  You may want to go to the F4 Config Panel and set
-"mask off high bit" for serial port accesses to make PR#1 work a little nicer.
-
-You can "print" from BASIC by using something like PR#1 in KEGS and
-"telnet localhost 6501 | tee file.out" in another window.
+See README.serial.ports.txt.
 
 
 KEGS status area:

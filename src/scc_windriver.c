@@ -1,4 +1,4 @@
-const char rcsid_scc_windriver_c[] = "@(#)$KmKId: scc_windriver.c,v 1.11 2023-05-19 14:00:22+00 kentd Exp $";
+const char rcsid_scc_windriver_c[] = "@(#)$KmKId: scc_windriver.c,v 1.13 2023-08-28 18:11:05+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -19,74 +19,85 @@ const char rcsid_scc_windriver_c[] = "@(#)$KmKId: scc_windriver.c,v 1.11 2023-05
 
 extern Scc g_scc[2];
 extern word32 g_c025_val;
+extern int g_serial_win_device[2];
 
 #ifdef _WIN32
-int
-scc_serial_win_init(int port)
+void
+scc_serial_win_open(int port)
 {
 	COMMTIMEOUTS commtimeouts;
-	char	str_buf[8];
+	char	str_buf[32];
 	Scc	*scc_ptr;
-	HANDLE	host_handle;
-	int	state;
+	HANDLE	com_handle;
 	int	ret;
 
 	scc_ptr = &(g_scc[port]);
 
-	scc_ptr->state = 0;		/* mark as failed */
+	snprintf(&str_buf[0], sizeof(str_buf), "COM%d",
+						g_serial_win_device[port]);
 
-	snprintf(&str_buf[0], sizeof(str_buf), "COM%d", port+1);
-
-	host_handle = CreateFile(&str_buf[0], GENERIC_READ | GENERIC_WRITE,
+	com_handle = CreateFile(&str_buf[0], GENERIC_READ | GENERIC_WRITE,
 			0, NULL, OPEN_EXISTING, 0, NULL);
 
-	scc_ptr->host_handle = host_handle;
-	scc_ptr->host_handle2 = malloc(sizeof(DCB));
+	scc_ptr->win_com_handle = com_handle;
 
-	printf("scc_socket_init %d called, host_handle: %p\n", port,
-				host_handle);
+	printf("scc_serial_win_init %d called, com_handle: %p\n", port,
+								com_handle);
 
-	if(host_handle == INVALID_HANDLE_VALUE) {
-		scc_ptr->host_handle = 0;
-		return 0;
+	if(com_handle == INVALID_HANDLE_VALUE) {
+		scc_ptr->cur_state = -1;		// Failed to open
+		return;
 	}
+	scc_ptr->win_dcb_ptr = malloc(sizeof(DCB));
 
 	scc_serial_win_change_params(port);
-
 
 	commtimeouts.ReadIntervalTimeout = MAXDWORD;
 	commtimeouts.ReadTotalTimeoutMultiplier = 0;
 	commtimeouts.ReadTotalTimeoutConstant = 0;
 	commtimeouts.WriteTotalTimeoutMultiplier = 0;
 	commtimeouts.WriteTotalTimeoutConstant = 10;
-	ret = SetCommTimeouts(host_handle, &commtimeouts);
+	ret = SetCommTimeouts(com_handle, &commtimeouts);
 	if(ret == 0) {
 		printf("setcommtimeout ret: %d\n", ret);
 	}
+	scc_ptr->cur_state = 0;		// COM* is open
+}
 
-	state = 2;	/* raw serial */
-	scc_ptr->state = state;
+void
+scc_serial_win_close(int port)
+{
+	Scc	*scc_ptr;
+	HANDLE	com_handle;
 
-	return state;
+	scc_ptr = &(g_scc[port]);
+	com_handle = scc_ptr->win_com_handle;
+	scc_ptr->win_com_handle = INVALID_HANDLE_VALUE;
+	if(com_handle == INVALID_HANDLE_VALUE) {
+		return;
+	}
+	CloseHandle(com_handle);
+	free(scc_ptr->win_dcb_ptr);
+	scc_ptr->win_dcb_ptr = 0;
 }
 
 void
 scc_serial_win_change_params(int port)
 {
 	DCB	*dcbptr;
-	HANDLE	host_handle;
+	HANDLE	com_handle;
 	Scc	*scc_ptr;
 	int	ret;
 
 	scc_ptr = &(g_scc[port]);
 
-	host_handle = scc_ptr->host_handle;
-	dcbptr = scc_ptr->host_handle2;
-	if(host_handle == 0) {
+	com_handle = scc_ptr->win_com_handle;
+	dcbptr = scc_ptr->win_dcb_ptr;
+	if((com_handle == INVALID_HANDLE_VALUE) || (scc_ptr->cur_state != 0)) {
 		return;
 	}
 
-	ret = GetCommState(host_handle, dcbptr);
+	ret = GetCommState(com_handle, dcbptr);
 	if(ret == 0) {
 		printf("getcomm port%d ret: %d\n", port, ret);
 	}
@@ -145,7 +156,7 @@ scc_serial_win_change_params(int port)
 	dcbptr->fOutX = 0;
 	dcbptr->fRtsControl = RTS_CONTROL_ENABLE;
 
-	ret = SetCommState(host_handle, dcbptr);
+	ret = SetCommState(com_handle, dcbptr);
 	if(ret == 0) {
 		printf("SetCommState ret: %d, new baud: %d\n", ret,
 			(int)dcbptr->BaudRate);
@@ -153,25 +164,25 @@ scc_serial_win_change_params(int port)
 }
 
 void
-scc_serial_win_fill_readbuf(int port, int space_left, dword64 dfcyc)
+scc_serial_win_fill_readbuf(dword64 dfcyc, int port, int space_left)
 {
 	byte	tmp_buf[256];
 	Scc	*scc_ptr;
-	HANDLE	host_handle;
+	HANDLE	com_handle;
 	DWORD	bytes_read;
-	int	i;
 	int	ret;
+	int	i;
 
 	scc_ptr = &(g_scc[port]);
 
-	host_handle = scc_ptr->host_handle;
-	if(host_handle == 0) {
+	com_handle = scc_ptr->win_com_handle;
+	if(com_handle == INVALID_HANDLE_VALUE) {
 		return;
 	}
 
 	/* Try reading some bytes */
 	space_left = MY_MIN(256, space_left);
-	ret = ReadFile(host_handle, tmp_buf, space_left, &bytes_read, NULL);
+	ret = ReadFile(com_handle, tmp_buf, space_left, &bytes_read, NULL);
 
 	if(ret == 0) {
 		printf("ReadFile ret 0\n");
@@ -179,7 +190,7 @@ scc_serial_win_fill_readbuf(int port, int space_left, dword64 dfcyc)
 
 	if(ret && (bytes_read > 0)) {
 		for(i = 0; i < (int)bytes_read; i++) {
-			scc_add_to_readbuf(port, tmp_buf[i], dfcyc);
+			scc_add_to_readbuf(dfcyc, port, tmp_buf[i]);
 		}
 	}
 }
@@ -188,20 +199,16 @@ void
 scc_serial_win_empty_writebuf(int port)
 {
 	Scc	*scc_ptr;
-	HANDLE	host_handle;
-	int	rdptr;
-	int	wrptr;
-	int	done;
-	word32	err_code;
+	HANDLE	com_handle;
 	DWORD	bytes_written;
-	int	ret;
-	int	len;
+	word32	err_code;
+	int	rdptr, wrptr, done, ret, len;
 
 	scc_ptr = &(g_scc[port]);
 
-	//printf("win_empty_writebuf, host_handle: %d\n", scc_ptr->host_handle);
-	host_handle = scc_ptr->host_handle;
-	if(host_handle == 0) {
+	//printf("win_empty_writebuf, com_h: %d\n", scc_ptr->win_com_handle);
+	com_handle = scc_ptr->win_com_handle;
+	if(com_handle == INVALID_HANDLE_VALUE) {
 		return;
 	}
 
@@ -227,7 +234,7 @@ scc_serial_win_empty_writebuf(int port)
 			break;
 		}
 		bytes_written = 1;
-		ret = WriteFile(host_handle, &(scc_ptr->out_buf[rdptr]), len,
+		ret = WriteFile(com_handle, &(scc_ptr->out_buf[rdptr]), len,
 				&bytes_written, NULL);
 		printf("WriteFile ret: %d, bytes_written:%d, len:%d\n", ret,
 			(int)bytes_written, len);

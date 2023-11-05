@@ -1,4 +1,4 @@
-const char rcsid_woz_c[] = "@(#)$KmKId: woz.c,v 1.29 2023-05-19 13:53:52+00 kentd Exp $";
+const char rcsid_woz_c[] = "@(#)$KmKId: woz.c,v 1.32 2023-09-05 01:32:43+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -101,7 +101,7 @@ woz_rewrite_lock(Disk *dsk)
 	wozptr = wozinfo_ptr->wozptr;
 	offset = wozinfo_ptr->info_offset;
 
-	wozptr[offset + 2] = dsk->write_prot;		// Toggle locked
+	wozptr[offset + 2] = (dsk->write_prot != 0);	// Update locked
 	woz_rewrite_crc(dsk, offset + 2 + 1);
 }
 
@@ -148,9 +148,10 @@ woz_check_file(Disk *dsk)
 		if(fdval == memval) {
 			continue;
 		}
-		halt_printf("byte %d (%07x): mem %02x, fd %02x\n", i, i, memval,
-									fdval);
+		halt_printf("byte %07x of %07x: mem %02x != %02x fd\n", i,
+						woz_size, memval, fdval);
 	}
+
 	crcnew = woz_calc_crc32(newwozptr, woz_size, 12);
 	free(newwozptr);
 	printf("Woz check file complete.  mem %08x vs fd %08x, freed %p\n",
@@ -610,6 +611,9 @@ woz_open(Disk *dsk, dword64 dfcyc)
 	// We set dsk->wozinfo_ptr, and caller will free it if we return 0
 	printf("woz_open on file %s, write_prot:%d\n", dsk->name_ptr,
 						dsk->write_prot);
+	if(dsk->trks == 0) {
+		return 0;		// Smartport?
+	}
 	if(dsk->raw_data) {
 		wozptr = dsk->raw_data;
 		woz_size = (word32)dsk->raw_dsize;
@@ -765,7 +769,7 @@ woz_append_a_trk(Woz_info *wozinfo_ptr, Disk *dsk, int trk_num, byte *bptr,
 		new_bptr[(num_blocks << 9) - 512 + i] = 0;
 	}
 	woz_append_bytes(new_bptr + (blocks_start << 9),
-			dsk->trks[trk_num].raw_bptr, this_blocks << 9);
+			dsk->trks[trk_num].raw_bptr, size_bytes);
 
 	return new_bptr;
 }
@@ -803,7 +807,7 @@ woz_new_from_woz(Disk *dsk, int disk_525)
 	}
 	if(in_wozptr) {
 		// Output the INFO chunk
-		memcpy(&buf[0], &in_wozptr[12], 60);
+		memcpy(&buf[0], &in_wozptr[20], 60);
 	} else {
 		// Output an INFO chunk for KEGS
 		buf[3] = 1;			// 1=synchronized tracks
@@ -890,7 +894,7 @@ woz_new_from_woz(Disk *dsk, int disk_525)
 	woz_size = wozinfo_ptr->woz_size;
 
 	printf(" new wozptr:%p, woz_size:%08x\n", wozptr, woz_size);
-	wozptr[68] = wozinfo_ptr->max_trk_blocks;
+	wozptr[64] = wozinfo_ptr->max_trk_blocks;	// largest track
 
 	crc = woz_calc_crc32(wozptr, woz_size, 12);
 	cfg_set_le32(&wozptr[8], crc);

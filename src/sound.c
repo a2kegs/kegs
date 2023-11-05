@@ -1,4 +1,4 @@
-const char rcsid_sound_c[] = "@(#)$KmKId: sound.c,v 1.153 2023-06-17 20:46:55+00 kentd Exp $";
+const char rcsid_sound_c[] = "@(#)$KmKId: sound.c,v 1.155 2023-08-19 17:45:33+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -134,18 +134,36 @@ extern dword64 g_cur_dfcyc;
 
 #define MAX_SND_BUF	65536
 
-int g_samp_buf[2*MAX_SND_BUF];
-word32 zero_buf[SOUND_SHM_SAMP_SIZE];
+int	g_samp_buf[2*MAX_SND_BUF];
+byte	g_zero_buf[4096];
 
 double g_doc_dsamps_extra = 0.0;
 
 int	g_num_snd_plays = 0;
 int	g_num_recalc_snd_parms = 0;
 
-int	g_sound_file_num = 0;
+char	*g_sound_file_str = 0;
 int	g_sound_file_fd = -1;
-int	g_send_sound_to_file = 0;
-int	g_send_file_bytes = 0;
+int	g_sound_file_bytes = 0;
+
+// WAV file information:
+// From https://docs.fileformat.com/audio/wav/
+// left channel is first: https://web.archive.org/web/20080113195252/
+//			http://www.borg.com/~jglatt/tech/wave.htm
+
+byte g_wav_hdr[44] = {
+	'R', 'I', 'F', 'F', 0xff, 0xff, 0xff, 0xff,		// 0x00-0x07
+	'W', 'A', 'V', 'E', 'f', 'm', 't', ' ',			// 0x08-0x0f
+	16, 0, 0, 0, 1, 0, 2, 0,				// 0x10-0x17
+		// 16=length of 'fmt ' chunk, 1=PCM, 2=stereo.
+	0xff, 0xff, 0xff, 0xff,	0xff, 0xff, 0xff, 0xff,		// 0x18-0x1f
+	4, 0, 16, 0, 'd', 'a', 't', 'a',			// 0x20-0x27
+	0xff, 0xff, 0xff, 0xff					// 0x28-0x2b
+};
+	// Bytes 4-7 are the total file size-8, so [0x28:0x2b]+0x24
+	// Bytes [0x18-0x1b]is the sample rate (so 44100 or so)
+	// [0x1c-0x1f] is bytes-per-second: [0x18-0x1b]*[0x10]*[0x16]/8
+
 
 void
 sound_init()
@@ -193,111 +211,108 @@ sound_update(dword64 dfcyc)
 }
 
 void
-open_sound_file()
+sound_file_start(char *filename)
 {
-	char	name[256];
+	sound_file_close();
+
+	g_sound_file_str = filename;	// Can be NULL, if so, do not start
+	if(filename) {
+		printf("Set audio save file to: %s\n", filename);
+	}
+}
+
+void
+sound_file_open()
+{
+	char	*filename;
+	word32	exp_size;
 	int	fd;
 
-	snprintf(name, sizeof(name), "snd.out.%d", g_sound_file_num);
+	filename = g_sound_file_str;
+	if(!filename) {
+		return;
+	}
 
-	fd = open(name, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0x1ff);
+	fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0x1b6);
 	if(fd < 0) {
 		printf("open_sound_file open ret: %d, errno: %d\n", fd, errno);
-		exit(1);
+		sound_file_close();
+		return;
 	}
 
+	exp_size = 1024*1024;		// Default to 1MB, changed at close
+	dynapro_set_word32(&g_wav_hdr[4], exp_size + 44 - 8);	// File size
+	dynapro_set_word32(&g_wav_hdr[0x28], exp_size);		// data size
+	dynapro_set_word32(&g_wav_hdr[0x18], g_audio_rate);	// Sample rate
+	dynapro_set_word32(&g_wav_hdr[0x1c], g_audio_rate * 2 * 2);
+								// bytes-per-sec
+
+	(void)cfg_write_to_fd(fd, &g_wav_hdr[0], 0, 44);
 	g_sound_file_fd = fd;
-	g_sound_file_num++;
-	g_send_file_bytes = 0;
+	g_sound_file_bytes = 0;
+	printf("Opened file %s for sound\n", filename);
 }
 
 void
-close_sound_file()
+sound_file_close()
 {
-	if(g_sound_file_fd >= 0) {
-		close(g_sound_file_fd);
+	int	fd;
+
+	fd = g_sound_file_fd;
+	if(fd >= 0) {
+		dynapro_set_word32(&g_wav_hdr[0x28], g_sound_file_bytes);
+		dynapro_set_word32(&g_wav_hdr[4], g_sound_file_bytes + 44 - 8);
+		cfg_write_to_fd(fd, &g_wav_hdr[0], 0, 44);
+			// Rewrite first 44 bytes with WAV header
+		printf("Close sound file %s, fd:%d\n", g_sound_file_str, fd);
+		close(fd);
 	}
 
+	free(g_sound_file_str);
 	g_sound_file_fd = -1;
+	g_sound_file_str = 0;
 }
 
 void
-check_for_range(word32 *addr, int num_samps, int offset)
+send_sound_to_file(word32 *wptr, int shm_pos, int num_samps, int real_samps)
 {
-	short	*shortptr;
-	int	i;
-	int	left;
-	int	right;
-	int	max;
+	int	size, this_size;
 
-	max = -32768;
-
-	if(num_samps > SOUND_SHM_SAMP_SIZE) {
-		halt_printf("num_samps: %d > %d!\n", num_samps,
-							SOUND_SHM_SAMP_SIZE);
+	if(!real_samps && g_sound_file_bytes) {
+		// Don't do anything
+		return;
 	}
-
-	for(i = 0; i < num_samps; i++) {
-		shortptr = (short *)&(addr[i]);
-		left = shortptr[0];
-		right = shortptr[1];
-		if((left > 0x3000) || (right > 0x3000)) {
-			halt_printf("Sample %d of %d at snd_buf: %p is: "
-				"%d/%d\n", i + offset, num_samps,
-				&addr[i], left, right);
-			return;
-		}
-
-		max = MY_MAX(max, left);
-		max = MY_MAX(max, right);
-	}
-
-	printf("check4 max: %d over %d\n", max, num_samps);
-}
-
-void
-send_sound_to_file(word32 *addr, int shm_pos, int num_samps)
-{
-	int	size, ret;
-
 	if(g_sound_file_fd < 0) {
-		open_sound_file();
+		sound_file_open();
+	}
+
+	if(!wptr) {
+		// No real samps
+		size = real_samps * 4;
+		while(size) {
+			this_size = size;
+			if(this_size > 4096) {
+				this_size = 4096;
+			}
+			must_write(g_sound_file_fd, &g_zero_buf[0], this_size);
+			size -= this_size;
+		}
+		return;
 	}
 
 	size = 0;
 	if((num_samps + shm_pos) > SOUND_SHM_SAMP_SIZE) {
 		size = SOUND_SHM_SAMP_SIZE - shm_pos;
-		g_send_file_bytes += (size * 4);
+		g_sound_file_bytes += (size * 4);
 
-		ret = (int)write(g_sound_file_fd, &(addr[shm_pos]), 4*size);
-		if(ret != (4*size)) {
-			halt_printf("wrote %d not %d\n", ret, 4*size);
-		}
-
-		if(g_doc_vol < 3) {
-			check_for_range(&(addr[shm_pos]), size, 0);
-		} else {
-			printf("Not checking %d bytes since vol: %d\n",
-				4*size, g_doc_vol);
-		}
+		must_write(g_sound_file_fd, (byte *)&(wptr[shm_pos]), 4*size);
 		shm_pos = 0;
 		num_samps -= size;
 	}
 
-	g_send_file_bytes += (num_samps * 4);
+	g_sound_file_bytes += (num_samps * 4);
 
-	ret = (int)write(g_sound_file_fd, &(addr[shm_pos]), 4*num_samps);
-	if(ret != (4*num_samps)) {
-		halt_printf("wrote %d not %d\n", ret, 4*num_samps);
-	}
-
-	if(g_doc_vol < 3) {
-		check_for_range(&(addr[shm_pos]), num_samps, size);
-	} else {
-		printf("Not checking2 %d bytes since vol: %d\n",
-			4*num_samps, g_doc_vol);
-	}
-
+	must_write(g_sound_file_fd, (byte *)&(wptr[shm_pos]), 4*num_samps);
 }
 
 void
@@ -378,7 +393,7 @@ sound_play_c030(dword64 dfcyc, dword64 dsamp, int *outptr_start, int num_samps)
 		//  linear ramp down.  Do this ramp based on the last click
 		//  time, not VBL, since this is more consistent
 
-		dsamp_min = g_c030_dsamp_last_toggle + (g_audio_rate >> 1);
+		dsamp_min = g_c030_dsamp_last_toggle + (g_audio_rate >> 4);
 		if(dsamp >= dsamp_min) {
 			min_i = 0;
 		} else {
@@ -388,8 +403,8 @@ sound_play_c030(dword64 dfcyc, dword64 dsamp, int *outptr_start, int num_samps)
 		val = (c030_val * mul) >> 4;
 		for(i = 0; i < num_samps; i++) {
 			if(i >= min_i) {
-				if(c030_val > 0) {
-					c030_val--;
+				if(c030_val > 4) {
+					c030_val -= 4;
 				} else {
 					c030_val = 0;
 				}
@@ -499,9 +514,11 @@ sound_play_c030(dword64 dfcyc, dword64 dsamp, int *outptr_start, int num_samps)
 	g_c030_state = c030_state;
 	g_c030_val = c030_val;
 
-	if(g_send_sound_to_file) {
+#if 0
+	if(g_sound_file_str) {
 		show_c030_samps(dfcyc, outptr_start, num_samps);
 	}
+#endif
 
 	// See if there are any entries >= fsampnum, copy them back down
 	//  to the beginning of the array
@@ -696,9 +713,9 @@ sound_play(dword64 dfcyc)
 				snddrv_send_sound(0, g_queued_nonsamps);
 				g_queued_nonsamps = 0;
 			}
-			if(g_send_sound_to_file) {
+			if(g_sound_file_str) {
 				send_sound_to_file(g_sound_shm_addr,
-						g_sound_shm_pos, num_samps);
+						g_sound_shm_pos, num_samps, 1);
 			}
 			g_queued_samps += num_samps;
 		} else {
@@ -707,9 +724,9 @@ sound_play(dword64 dfcyc)
 			while(pos >= SOUND_SHM_SAMP_SIZE) {
 				pos -= SOUND_SHM_SAMP_SIZE;
 			}
-			if(g_send_sound_to_file) {
-				send_sound_to_file(zero_buf, g_sound_shm_pos,
-					num_samps);
+			if(g_sound_file_str) {
+				send_sound_to_file(0, g_sound_shm_pos,
+								num_samps, 0);
 			}
 			if(g_queued_samps) {
 				/* force out old non-0 samps */

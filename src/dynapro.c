@@ -1,4 +1,4 @@
-const char rcsid_dynapro_c[] = "@(#)$KmKId: dynapro.c,v 1.48 2023-05-22 20:15:18+00 kentd Exp $";
+const char rcsid_dynapro_c[] = "@(#)$KmKId: dynapro.c,v 1.49 2023-09-23 17:53:24+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -29,7 +29,7 @@ extern int Verbose;
 #define DYNAPRO_PATH_MAX		2048
 char g_dynapro_path_buf[DYNAPRO_PATH_MAX];
 
-extern int g_vbl_count, g_iwm_dynapro_last_vbl_count;
+extern word32 g_vbl_count, g_iwm_dynapro_last_vbl_count;
 
 byte g_prodos_block0[512] = {
 	// From Beagle Bros Pro-Byter disk
