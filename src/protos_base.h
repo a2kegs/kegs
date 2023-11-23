@@ -11,7 +11,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.156 2023-09-27 03:48:47+00 kentd Exp $";
+const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.158 2023-11-23 03:22:51+00 kentd Exp $";
 #endif
 
 #ifdef __GNUC__
@@ -527,15 +527,16 @@ int parse_argv(int argc, char **argv, int slashes_to_find);
 int kegs_init(int mdepth);
 void load_roms_init_memory(void);
 void initialize_events(void);
-void check_for_one_event_type(int type);
+void check_for_one_event_type(int type, word32 mask);
 void add_event_entry(dword64 dfcyc, int type);
-dword64 remove_event_entry(int type);
+dword64 remove_event_entry(int type, word32 mask);
 void add_event_stop(dword64 dfcyc);
 void add_event_doc(dword64 dfcyc, int osc);
 void add_event_scc(dword64 dfcyc, int type);
 void add_event_vbl(void);
 void add_event_vid_upd(int line);
 void add_event_mockingboard(dword64 dfcyc);
+void add_event_scan_int(dword64 dfcyc, int line);
 dword64 remove_event_doc(int osc);
 dword64 remove_event_scc(int type);
 void remove_event_mockingboard(void);
@@ -553,6 +554,7 @@ void do_vbl_int(void);
 void do_scan_int(dword64 dfcyc, int line);
 void check_scan_line_int(int cur_video_line);
 void check_for_new_scan_int(dword64 dfcyc);
+void scb_changed(dword64 dfcyc, word32 addr, word32 new_val, word32 old_val);
 void init_reg(void);
 void handle_action(word32 ret);
 void do_break(word32 ret);
@@ -560,6 +562,7 @@ void do_cop(word32 ret);
 void do_wdm(word32 arg);
 void do_wai(void);
 void do_stp(void);
+void do_wdm_emulator_id(void);
 void size_fail(int val, word32 v1, word32 v2);
 int fatal_printf(const char *fmt, ...);
 int kegs_vprintf(const char *fmt, va_list ap);

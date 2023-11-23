@@ -1,4 +1,4 @@
-// $KmKId: op_routs.h,v 1.46 2023-06-02 19:56:00+00 kentd Exp $
+// $KmKId: op_routs.h,v 1.47 2023-11-05 16:21:51+00 kentd Exp $
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -20,7 +20,7 @@
 		CYCLES_PLUS_1;			\
 	}					\
 	arg = arg + xreg + direct;		\
-	GET_MEMORY_DIRECT_PAGE16(arg & 0xffff, arg);	\
+	GET_MEMORY_DIRECT_PAGE16(arg & 0xffff, arg, 1);	\
 	arg = (dbank << 16) + arg;
 
 
@@ -67,7 +67,7 @@
 	if(direct & 0xff) {		\
 		CYCLES_PLUS_1;		\
 	}				\
-	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, arg);	\
+	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, arg, 0);	\
 	arg = (dbank << 16) + arg;
 
 

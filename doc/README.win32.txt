@@ -1,6 +1,26 @@
 
+How to compile KEGS for Windows
+-------------------------------
+
+Go to the src/ directory in the KEGS release, and double-click the
+kegswin.vcxproj file.  Alternatively, from a PowerShell prompt, you can do:
+
+start ./kegswin.vcxproj
+
+This will launch Visual Studio.  Microsoft has a free Visual Studio Community
+Edition which is what I use.
+
+To compile, click Build->Build Solution, or just press F7.
+It will leave an executable in x64/Release/kegswin.exe if you use the
+default 64-bit build.
+
+
+
+OLD Information (probably best to ignore this)
+---------------
+
 These are raw notes to myself.  Probably not useful for others, just
-ignore.  KEGS will support Windows again soon, but not yet.
+ignore, it's how I got KEGS into Visual Studio in the first place.
 
 ----
 

@@ -1,4 +1,4 @@
-const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.302 2023-11-04 01:45:55+00 kentd Exp $";
+const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.304 2023-11-19 01:49:41+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -333,9 +333,6 @@ fixup_intcx()
 				rom_inc = &(g_rom_cards_ptr[0]) +
 							((j - 0xc0) << 8);
 				if(j == 0xc4) {		// Mockingboard
-					rom_inc = SET_BANK_IO;
-				}
-				if(j == 0xc7) {		// Slot 7, virtual hd
 					rom_inc = SET_BANK_IO;
 				}
 			}
@@ -1195,49 +1192,58 @@ io_read(word32 loc, dword64 *cyc_ptr)
 
 		/* 0xc050 - 0xc05f */
 		case 0x50: /* 0xc050 */
+			val = float_bus(dfcyc);
 			if(g_cur_a2_stat & ALL_STAT_TEXT) {
 				g_cur_a2_stat &= (~ALL_STAT_TEXT);
 				change_display_mode(dfcyc);
 			}
-			return float_bus(dfcyc);
+			return val;
 		case 0x51: /* 0xc051 */
+			val = float_bus(dfcyc);
 			if((g_cur_a2_stat & ALL_STAT_TEXT) == 0) {
 				g_cur_a2_stat |= (ALL_STAT_TEXT);
 				change_display_mode(dfcyc);
 			}
-			return float_bus(dfcyc);
+			return val;
 		case 0x52: /* 0xc052 */
+			val = float_bus(dfcyc);
 			if(g_cur_a2_stat & ALL_STAT_MIX_T_GR) {
 				g_cur_a2_stat &= (~ALL_STAT_MIX_T_GR);
 				change_display_mode(dfcyc);
 			}
-			return float_bus(dfcyc);
+			return val;
 		case 0x53: /* 0xc053 */
+			val = float_bus(dfcyc);
 			if((g_cur_a2_stat & ALL_STAT_MIX_T_GR) == 0) {
 				g_cur_a2_stat |= (ALL_STAT_MIX_T_GR);
 				change_display_mode(dfcyc);
 			}
-			return float_bus(dfcyc);
+			return val;
 		case 0x54: /* 0xc054 */
+			val = float_bus(dfcyc);
 			set_statereg(dfcyc, g_c068_statereg & (~0x40));
+			return val;
 			return float_bus(dfcyc);
 		case 0x55: /* 0xc055 */
+			val = float_bus(dfcyc);
 			set_statereg(dfcyc, g_c068_statereg | 0x40);
-			return float_bus(dfcyc);
+			return val;
 		case 0x56: /* 0xc056 */
+			val = float_bus(dfcyc);
 			if(g_cur_a2_stat & ALL_STAT_HIRES) {
 				g_cur_a2_stat &= (~ALL_STAT_HIRES);
 				fixup_hires_on();
 				change_display_mode(dfcyc);
 			}
-			return float_bus(dfcyc);
+			return val;
 		case 0x57: /* 0xc057 */
+			val = float_bus(dfcyc);
 			if((g_cur_a2_stat & ALL_STAT_HIRES) == 0) {
 				g_cur_a2_stat |= (ALL_STAT_HIRES);
 				fixup_hires_on();
 				change_display_mode(dfcyc);
 			}
-			return float_bus(dfcyc);
+			return val;
 		case 0x58: /* 0xc058 */
 			if(g_zipgs_unlock < 4) {
 				g_c05x_annuncs &= (~1);
@@ -1424,27 +1430,13 @@ io_read(word32 loc, dword64 *cyc_ptr)
 			printf("loc: %04x bad\n", loc);
 			UNIMPL_READ;
 		}
-	case 1: case 2: case 5: case 6:
-		/* c100 - c6ff, (except c3xx, c4xx) */
+	case 1: case 2: case 5: case 6: case 7:
+		/* c100 - c7ff, (except c3xx, c4xx) */
 		return float_bus(dfcyc);
 	case 3:	// c300
 		return c3xx_read(dfcyc, loc);
 	case 4:
 		return mockingboard_read(loc, dfcyc);
-	case 7:
-		/* c700 */
-		if((g_c068_statereg & 1) || ((g_c02d_int_crom & 0x80) == 0)) {
-			// INTCXROM set or c02d_slot_rom 7 is cleat
-			// This should never happen
-			tmp = g_rom_fc_ff_ptr[0x3c700 + (loc & 0xff)];
-		} else {
-			// Map slot 5 ROM to the slot 7 "my card"
-			tmp = g_rom_fc_ff_ptr[0x3c500 + (loc & 0xff)];
-			if((loc & 0xff) == 0xfb) {
-				tmp = tmp & 0xbf;	// clr bit 6 for ROM 03
-			}
-		}
-		return tmp;
 	case 8: case 9: case 0xa: case 0xb: case 0xc: case 0xd: case 0xe:
 		return float_bus(dfcyc);
 		// UNIMPL_READ;

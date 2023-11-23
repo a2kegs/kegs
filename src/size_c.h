@@ -1,4 +1,4 @@
-// "@(#)$KmKId: size_c.h,v 1.1 2020-09-06 13:59:43+00 kentd Exp $"
+// "@(#)$KmKId: size_c.h,v 1.2 2023-11-12 15:32:17+00 kentd Exp $"
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
 /*			Copyright 2002-2020 by Kent Dickey		*/
@@ -78,7 +78,7 @@
 	0x3,	/* 3f */	/* AND Long,x */
 	0x0,	/* 40 */	/* RTI */
 	0x1,	/* 41 */	/* EOR (Dloc,X) */
-	0x1,	/* 42 */	/* WDM */
+	0x2,	/* 42 */	/* WDM HACK: uses 2 args */
 	0x1,	/* 43 */	/* EOR Disp8,S */
 	0x2,	/* 44 */	/* MVP I,J */
 	0x1,	/* 45 */	/* EOR Dloc */

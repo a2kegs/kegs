@@ -1,4 +1,4 @@
-// "@(#)$KmKId: instable.h,v 1.119 2023-11-05 00:58:27+00 kentd Exp $"
+// "@(#)$KmKId: instable.h,v 1.121 2023-11-12 15:31:14+00 kentd Exp $"
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -446,11 +446,12 @@ case 0x41:			/*  EOR (Dloc,X) */
 	break;
 
 case 0x42:			/*  WDM */
-	GET_1BYTE_ARG;
+	GET_2BYTE_ARG;
 	INC_KPC_2;
-	CYCLES_PLUS_5;
-	CYCLES_PLUS_2;
-	FINISH(RET_WDM, arg & 0xff);
+	if(arg < 0x100) {	// Next byte is 00
+		INC_KPC_1;	// Skip over the BRK
+	}
+	FINISH(RET_WDM, arg);
 	break;
 
 case 0x43:			/*  EOR Disp8,S */
@@ -461,17 +462,22 @@ case 0x43:			/*  EOR Disp8,S */
 case 0x44:			/*  MVP */
 	GET_2BYTE_ARG;
 	/* arg & 0xff = dest bank, arg & 0xff00 = src bank */
-	if(psr & 0x110) {
-		halt_printf("MVP but not native m or x!\n");
+	if(psr & 0x100) {
+		halt_printf("MVP in emulation!\n");
 		break;
 	}
 	dbank = arg & 0xff;
 	tmp1 = (arg >> 8) & 0xff;
-	CYCLES_PLUS_3;
+	CYCLES_PLUS_1;
 	GET_MEMORY8((tmp1 << 16) + xreg, arg);
 	SET_MEMORY8((dbank << 16) + yreg, arg);
+	CYCLES_PLUS_2;
 	xreg = (xreg - 1) & 0xffff;
 	yreg = (yreg - 1) & 0xffff;
+	if(psr & 0x10) {	// 8-bit index registers
+		xreg = xreg & 0xff;
+		yreg = yreg & 0xff;
+	}
 	acc = (acc - 1) & 0xffff;
 	if(acc == 0xffff) {
 		INC_KPC_3;
@@ -570,17 +576,22 @@ case 0x53:			/*  EOR (Disp8,s),y */
 case 0x54:			/*  MVN  */
 	GET_2BYTE_ARG;
 	/* arg & 0xff = dest bank, arg & 0xff00 = src bank */
-	if(psr & 0x110) {
-		halt_printf("MVN but not native m or x!\n");
+	if(psr & 0x100) {
+		halt_printf("MVN in emulation!\n");
 		break;
 	}
 	dbank = arg & 0xff;
 	tmp1 = (arg >> 8) & 0xff;
-	CYCLES_PLUS_3;
+	CYCLES_PLUS_1;
 	GET_MEMORY8((tmp1 << 16) + xreg, arg);
 	SET_MEMORY8((dbank << 16) + yreg, arg);
+	CYCLES_PLUS_2;
 	xreg = (xreg + 1) & 0xffff;
 	yreg = (yreg + 1) & 0xffff;
+	if(psr & 0x10) {	// 8-bit index registers
+		xreg = xreg & 0xff;
+		yreg = yreg & 0xff;
+	}
 	acc = (acc - 1) & 0xffff;
 	if(acc == 0xffff) {
 		INC_KPC_3;

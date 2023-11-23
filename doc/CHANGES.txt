@@ -1,4 +1,18 @@
 
+Changes in KEGS v1.32 since v1.31 (11/22/23)
+- Fix (dloc,x) in emulation mode to wrap as described at
+	https://github.com/gilyon/snes-tests/tree/main/cputest
+- Improve virtual hard drive in slot 7 to use a small driver at $C700 which
+	uses WDM $C7,$00 to call back to KEGS for handling commands.
+- Improve SCC8530 emulation to add support for RTxC as clock for higher speeds.
+- Fix a GS/OS visual anomaly with the mouse cursor sometimes disappearing
+	when moving upwards, due to Scanline interrupts not being taken
+	properly.
+- Support qkumba's code to run from $C050 by having get_remaing_opcodes()
+	track time properly, and to have reads to $C050-$C057 call float_bus()
+	before doing the softswitch action.
+
+
 Changes in KEGS v1.31 since v1.30 (11/04/23)
 - Fix Windows failure where KEGS would quit on startup if config.kegs
 	contained a new ROM path.

@@ -1,4 +1,4 @@
-const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.68 2023-10-30 16:51:32+00 kentd Exp $";
+const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.70 2023-11-12 22:34:28+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -33,10 +33,12 @@ extern int g_irq_pending;
 
 #include "scc.h"
 #define SCC_R14_DPLL_SOURCE_BRG		0x100
-#define SCC_R14_FM_MODE			0x200
+#define SCC_R14_DPLL_SOURCE_RTXC	0x200
 
 #define SCC_DCYCS_PER_PCLK	((DCYCS_1_MHZ) / ((DCYCS_28_MHZ) /8))
 #define SCC_DCYCS_PER_XTAL	((DCYCS_1_MHZ) / 3686400.0)
+
+// PCLK is 3.5795MHz
 
 #define SCC_BR_EVENT			1
 #define SCC_TX_EVENT			2
@@ -198,7 +200,7 @@ scc_regen_clocks(int port)
 {
 	Scc	*scc_ptr;
 	double	br_dcycs, tx_dcycs, rx_dcycs, rx_char_size, tx_char_size;
-	double	clock_mult;
+	double	clock_mult, dpll_dcycs;
 	word32	reg4, reg11, reg14, br_const, max_diff, diff;
 	int	baud, cur_state, baud_entries, pos;
 	int	i;
@@ -208,7 +210,7 @@ scc_regen_clocks(int port)
 	br_const = (scc_ptr->reg[13] << 8) + scc_ptr->reg[12];
 	br_const += 2;	/* counts down past 0 */
 
-	reg4 = scc_ptr->reg[4];
+	reg4 = scc_ptr->reg[4];		// Transmit/Receive misc params
 	clock_mult = 1.0;
 	switch((reg4 >> 6) & 3) {
 	case 0:		/* x1 */
@@ -234,17 +236,44 @@ scc_regen_clocks(int port)
 		}
 	}
 
-	br_dcycs = br_dcycs * (double)br_const;
+	br_dcycs = br_dcycs * (double)br_const * 2.0;
+
+	dpll_dcycs = 0.1;
+	if(reg14 & SCC_R14_DPLL_SOURCE_BRG) {
+		dpll_dcycs = br_dcycs;
+	} else if(reg14 & SCC_R14_DPLL_SOURCE_RTXC) {
+		dpll_dcycs = SCC_DCYCS_PER_XTAL;
+	}
 
 	tx_dcycs = 1;
-	rx_dcycs = 1;
 	reg11 = scc_ptr->reg[11];
-	if(((reg11 >> 3) & 3) == 2) {
-		tx_dcycs = 2.0 * br_dcycs * clock_mult;
+	switch((reg11 >> 3) & 3) {
+	case 0:		// /RTxC pin
+		tx_dcycs = SCC_DCYCS_PER_XTAL;
+		break;
+	case 2:		// BR generator output
+		tx_dcycs = br_dcycs;
+		break;
+	case 3:		// DPLL output
+		tx_dcycs = dpll_dcycs;
+		break;
 	}
-	if(((reg11 >> 5) & 3) == 2) {
-		rx_dcycs = 2.0 * br_dcycs * clock_mult;
+
+	tx_dcycs = tx_dcycs * clock_mult;
+
+	rx_dcycs = 1;
+	switch((reg11 >> 5) & 3) {
+	case 0:		// /RTxC pin
+		rx_dcycs = SCC_DCYCS_PER_XTAL;
+		break;
+	case 2:		// BR generator output
+		rx_dcycs = br_dcycs;
+		break;
+	case 3:		// DPLL output
+		rx_dcycs = dpll_dcycs;
+		break;
 	}
+	rx_dcycs = rx_dcycs * clock_mult;
 
 	tx_char_size = 8.0;
 	switch((scc_ptr->reg[5] >> 5) & 0x3) {
@@ -726,7 +755,8 @@ scc_write_reg(dword64 dfcyc, int port, word32 val)
 		scc_ptr->reg_ptr = 0;
 		scc_ptr->mode = 0;
 	}
-	changed_bits = (scc_ptr->reg[regnum] ^ val) & 0xff;
+	old_val = scc_ptr->reg[regnum];
+	changed_bits = (old_val ^ val) & 0xff;
 
 	dbg_log_info(dfcyc, (mode << 16) | scc_ptr->reg_ptr,
 			(changed_bits << 16) | val,
@@ -875,16 +905,23 @@ scc_write_reg(dword64 dfcyc, int port, word32 val)
 		}
 		return;
 	case 14: /* wr14 */
-		old_val = scc_ptr->reg[regnum];
-		val = val + (old_val & (~0xff));
+		val = val | (old_val & (~0xffU));
 		switch((val >> 5) & 0x7) {
-		case 0x0:
-		case 0x1:
-		case 0x2:
-		case 0x3:
+		case 0x0:	// Null command (change nothing)
 			break;
-		case 0x4:	/* DPLL source is BR gen */
-			val |= SCC_R14_DPLL_SOURCE_BRG;
+		case 0x1:	// Enter search mode
+		case 0x2:	// Reset missing clock
+		case 0x3:	// Disable PLL
+		case 0x6:	// Set FM mode
+		case 0x7:	// Set NRZI mode
+			// Disable the PLL effectively
+			val = val & 0xff;	// Clear all upper bits
+			break;
+		case 0x4:	// DPLL source is BR gen
+			val = (val & 0xff) | SCC_R14_DPLL_SOURCE_BRG;
+			break;
+		case 0x5:	// DPLL source is RTxC
+			val = (val & 0xff) | SCC_R14_DPLL_SOURCE_RTXC;
 			break;
 		default:
 			halt_printf("Wr c03%x to wr14 of %02x, bad dpll cd!\n",
@@ -894,7 +931,7 @@ scc_write_reg(dword64 dfcyc, int port, word32 val)
 			halt_printf("Wr c03%x to wr14 of %02x!\n", 8+port, val);
 		}
 		scc_ptr->reg[regnum] = val;
-		if(changed_bits) {
+		if(changed_bits || (val != old_val)) {
 			scc_regen_clocks(port);
 		}
 		scc_maybe_br_event(dfcyc, port);

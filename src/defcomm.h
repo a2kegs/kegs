@@ -1,5 +1,5 @@
 #ifdef INCLUDE_RCSID_C
-const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.108 2023-06-14 04:26:36+00 kentd Exp $";
+const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.109 2023-11-12 15:29:41+00 kentd Exp $";
 #endif
 
 /************************************************************************/
@@ -61,10 +61,7 @@ const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.108 2023-06-14 04:26:
 #define RET_STP		0x5
 #define RET_PSR		0x6
 #define RET_IRQ		0x7
-#define RET_C700	0x8
-#define RET_C70A	0x9
-#define RET_C70D	0xa
-#define RET_TOOLTRACE	0xb
+#define RET_TOOLTRACE	0x8
 
 
 #define BIT_ALL_STAT_TEXT		0

@@ -1,4 +1,4 @@
-// $KmKId: defs_instr.h,v 1.69 2023-11-05 00:58:45+00 kentd Exp $
+// $KmKId: defs_instr.h,v 1.70 2023-11-05 16:22:26+00 kentd Exp $
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -167,7 +167,7 @@
 	if(direct & 0xff) {						\
 		CYCLES_PLUS_1;						\
 	}								\
-	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, tmp1);	\
+	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, tmp1, 0);	\
 	tmp1 += (dbank << 16);						\
 	arg = (tmp1 + yreg) & 0xffffff;					\
 	tmp2 = (tmp1 & 0xffff00) | (arg & 0xff);			\
@@ -187,7 +187,7 @@
 	if(direct & 0xff) {				\
 		CYCLES_PLUS_1;				\
 	}						\
-	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, arg);	\
+	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, arg, 0);	\
 	GET_MEMORY8((dbank << 16) + arg, arg);
 #else
 # define GET_DLOC_IND_RD()				\
@@ -196,7 +196,7 @@
 	if(direct & 0xff) {				\
 		CYCLES_PLUS_1;				\
 	}						\
-	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, arg);	\
+	GET_MEMORY_DIRECT_PAGE16((direct + arg) & 0xffff, arg, 0);	\
 	GET_MEMORY16((dbank << 16) + arg, arg, 0);
 #endif
 

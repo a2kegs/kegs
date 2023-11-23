@@ -1,4 +1,4 @@
-const char rcsid_smartport_c[] = "@(#)$KmKId: smartport.c,v 1.58 2023-09-06 00:28:46+00 kentd Exp $";
+const char rcsid_smartport_c[] = "@(#)$KmKId: smartport.c,v 1.60 2023-11-22 18:34:49+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -107,10 +107,11 @@ do_c70d(word32 arg0)
 	word32	rts_lo, rts_hi, buf_ptr_lo, buf_ptr_hi, buf_ptr, mask, cmd;
 	word32	block_lo, block_mid, block_hi, block_hi2, unit, ctl_code;
 	word32	ctl_ptr_lo, ctl_ptr_hi, ctl_ptr, block, stat_val;
-	int	param_cnt, ret, ext;
+	int	param_cnt, ret, ext, slot;
 	int	i;
 
-	set_memory_c(0x7f8, 0xc7, 1);
+	slot = (engine.kpc >> 8) & 7;
+	set_memory_c(0x7f8, 0xc0 | slot, 1);
 
 	if((engine.psr & 0x100) == 0) {
 		disk_printf("c70d %02x called in native mode!\n", arg0);
@@ -455,9 +456,10 @@ do_c70a(word32 arg0)
 	dword64	dsize;
 	word32	cmd, unit, buf_lo, buf_hi, blk_lo, blk_hi, blk, buf;
 	word32	prodos_unit;
-	int	ret;
+	int	ret, slot;
 
-	set_memory_c(0x7f8, 0xc7, 1);
+	slot = (engine.kpc >> 8) & 7;
+	set_memory_c(0x7f8, 0xc0 | slot, 1);
 
 	cmd = get_memory_c((engine.direct + 0x42) & 0xffff);
 	prodos_unit = get_memory_c((engine.direct + 0x43) & 0xffff);
@@ -471,13 +473,9 @@ do_c70a(word32 arg0)
 	disk_printf("c70a %02x cmd:%02x, pro_unit:%02x, buf:%04x, blk:%04x\n",
 		arg0, cmd, prodos_unit, buf, blk);
 
-	if((prodos_unit & 0x7f) == 0x70) {
-		unit = 0 + (prodos_unit >> 7);
-	} else if((prodos_unit & 0x7f) == 0x40) {
-		unit = 2 + (prodos_unit >> 7);
-	} else {
-		halt_printf("Unknown prodos_unit: %d\n", prodos_unit);
-		return;
+	unit = 0 + (prodos_unit >> 7);		// units 0,1
+	if((prodos_unit & 0x7f) != (slot << 4)) {
+		unit += 2;			// units 2,3
 	}
 
 	smartport_log(0xc70a, cmd, blk, buf);
@@ -491,11 +489,6 @@ do_c70a(word32 arg0)
 	}
 #endif
 	engine.psr &= ~1;	/* clear carry */
-	if(g_rom_version >= 3) {
-		engine.kpc = 0xc764;
-	} else {
-		engine.kpc = 0xc765;
-	}
 
 	ret = 0x27;	/* I/O error */
 	if(cmd == 0x00) {
@@ -522,7 +515,7 @@ do_c70a(word32 arg0)
 
 	engine.acc = (engine.acc & 0xff00) | (ret & 0xff);
 	if(ret != 0) {
-		engine.psr |= 1;
+		engine.psr |= 1;			// Set carry
 	}
 	return;
 }
@@ -793,20 +786,27 @@ do_format_c7(int unit_num)
 void
 do_c700(word32 ret)
 {
+	int	slot;
+
 	disk_printf("do_c700 called, ret: %08x\n", ret);
+	dbg_log_info(g_cur_dfcyc, 0, 0, 0xc700);
 
-	ret = do_read_c7(0, 0x800, 0);
+	slot = (engine.kpc >> 8) & 7;
+	ret = do_read_c7(0, 0x800, 0);		// Always read unit 0, block 0
 
-	set_memory_c(0x7f8, 7, 1);
-	set_memory16_c(0x42, 0x7001, 1);
+	set_memory_c(0x7f8, slot, 1);
+	set_memory16_c(0x42, (slot << 12) | 1, 1);
 	set_memory16_c(0x44, 0x0800, 1);
 	set_memory16_c(0x46, 0x0000, 1);
-	engine.xreg = 0x70;
+	engine.xreg = slot << 4;		// 0x70 for slot 7
 	engine.kpc = 0x801;
 
 	if(ret != 0) {
-		printf("Failure reading boot disk in s7d1!\n");
+		printf("Failure reading boot disk in s7d1, trying slot 5!\n");
 		engine.kpc = 0xc500;		// Try to boot slot 5
+		if(slot == 5) {
+			engine.kpc = 0xc600;	// Try to boot slot 6
+		}
 	}
 }
 

@@ -1,4 +1,4 @@
-const char rcsid_engine_c_c[] = "@(#)$KmKId: engine_c.c,v 1.93 2023-11-05 00:58:08+00 kentd Exp $";
+const char rcsid_engine_c_c[] = "@(#)$KmKId: engine_c.c,v 1.97 2023-11-19 01:49:10+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -73,8 +73,6 @@ int bogus[] = {
 #define CYCLES_PLUS_5	dfcyc += dplus_1 * 5;
 #define CYCLES_MINUS_1	dfcyc -= dplus_1;
 #define CYCLES_MINUS_2	dfcyc -= dplus_1 * 2;
-
-#define CYCLES_FINISH	dfcyc = g_dcycles_end + dplus_1;
 
 #define FCYCLES_ROUND	dfcyc = dfcyc + dplus_x_m1;		\
 			dfcyc = (dfcyc >> 16) << 16;
@@ -164,7 +162,7 @@ extern word32 g_slow_mem_changed[];
 	}							\
 	addr_latch = save_addr;
 
-#define GET_MEMORY_DIRECT_PAGE16(addr, dest)				\
+#define GET_MEMORY_DIRECT_PAGE16(addr, dest, dloc_x_wrap)		\
 	save_addr = addr;						\
 	if(psr & 0x100) {						\
 		if((direct & 0xff) == 0) {				\
@@ -173,7 +171,12 @@ extern word32 g_slow_mem_changed[];
 	}								\
 	if((psr & 0x100) && (((addr) & 0xff) == 0xff)) {		\
 		GET_MEMORY8(save_addr, getmem_tmp);			\
-		save_addr = (save_addr + 1) & 0xffff;			\
+		if(dloc_x_wrap) {					\
+			save_addr = (save_addr & 0xff00) |		\
+					((save_addr + 1) & 0xff);	\
+		} else {						\
+			save_addr = (save_addr + 1) & 0xffff;		\
+		}							\
 		if((direct & 0xff) == 0) {				\
 			save_addr = (save_addr & 0xff) + direct;	\
 		}							\
@@ -446,6 +449,9 @@ set_memory8_io_stub(word32 addr, word32 val, byte *stat, dword64 *dcycs_ptr,
 		if(setmem_tmp1 != ((val) & 0xff)) {
 			g_slow_mem_changed[tmp1 >> CHANGE_SHIFT] |=
 				(1U << ((tmp1 >> SHIFT_PER_CHANGE) & 31));
+			if((tmp1 & 0xff00) == 0x9d00) {
+				scb_changed(dfcyc, tmp1, val, setmem_tmp1);
+			}
 		}
 	} else {
 		/* breakpoint only */
@@ -795,36 +801,31 @@ get_remaining_operands(word32 addr, word32 opcode, word32 psr,
 	addrp1 = (addr & 0xff0000) + ((addr + 1) & 0xffff);
 	switch(size) {
 	case 0:
+		// Always read pc+1 for single-byte opcodes
+		GET_MEMORY8(addrp1, arg);
 		arg = 0;	/* no args */
 		break;
 	case 1:
 		GET_MEMORY8(addrp1, arg);
-		dfcyc -= dplus_1;
 		break;		/* 1 arg, already done */
 	case 2:
 		GET_MEMORY16(addrp1, arg, 1);
-		dfcyc -= dplus_1 * 2;
 		break;
 	case 3:
 		GET_MEMORY24(addrp1, arg, 1);
-		dfcyc -= dplus_1 * 3;
 		break;
 	case 4:
 		if(psr & 0x20) {
 			GET_MEMORY8(addrp1, arg);
-			dfcyc -= dplus_1;
 		} else {
 			GET_MEMORY16(addrp1, arg, 1);
-			dfcyc -= dplus_1 * 2;
 		}
 		break;
 	case 5:
 		if(psr & 0x10) {
 			GET_MEMORY8(addrp1, arg);
-			dfcyc -= dplus_1;
 		} else {
 			GET_MEMORY16(addrp1, arg, 1);
-			dfcyc -= dplus_1 * 2;
 		}
 		break;
 	default:
@@ -846,17 +847,9 @@ get_remaining_operands(word32 addr, word32 opcode, word32 psr,
 	arg_ptr = ptr;							\
 	opcode = *ptr;							\
 	if((wstat & (1 << (31-BANK_IO_BIT))) || ((addr & 0xff) > 0xfc)) {\
+		CYCLES_MINUS_1;						\
 		if(wstat & BANK_BREAK) {				\
 			check_breakpoints(addr, dfcyc, stack, 4);	\
-		}							\
-		if((addr & 0xfffff0) == 0x00c700) {			\
-			if(addr == 0xc700) {				\
-				FINISH(RET_C700, 0);			\
-			} else if(addr == 0xc70a) {			\
-				FINISH(RET_C70A, 0);			\
-			} else if(addr == 0xc70d) {			\
-				FINISH(RET_C70D, 0);			\
-			}						\
 		}							\
 		if(wstat & (1 << (31 - BANK_IO2_BIT))) {		\
 			FCYCLES_ROUND;					\

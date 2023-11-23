@@ -1,4 +1,4 @@
-const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.474 2023-11-05 00:27:11+00 kentd Exp $";
+const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.480 2023-11-23 03:35:00+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -81,7 +81,7 @@ int	g_code_yellow = 0;
 int	g_emul_6502_ind_page_cross_bug = 0;
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "1.31";
+const char g_kegs_version_str[] = "1.32";
 
 dword64	g_last_vbl_dfcyc = 0;
 dword64	g_cur_dfcyc = 1;
@@ -781,36 +781,34 @@ initialize_events()
 }
 
 void
-check_for_one_event_type(int type)
+check_for_one_event_type(int type, word32 mask)
 {
 	Event	*ptr;
-	int	count;
-	int	depth;
+	int	count, depth;
 
+	type = type & 0xff;
 	count = 0;
 	depth = 0;
 	ptr = g_event_start.next;
 	while(ptr != 0) {
 		depth++;
-		if(ptr->type == type) {
+		if((ptr->type & mask) == (word32)type) {
 			count++;
 			if(count != 1) {
-				halt_printf("in check_for_1, type %d found at "
-					"depth: %d, count: %d, at %016llx\n",
-					type, depth, count, ptr->dfcyc);
+				halt_printf("in check_for_1, type %04x found "
+					"at depth: %d, count: %d, at %016llx\n",
+					ptr->type, depth, count, ptr->dfcyc);
 			}
 		}
 		ptr = ptr->next;
 	}
 }
 
-
 void
 add_event_entry(dword64 dfcyc, int type)
 {
 	Event	*this_event;
 	Event	*ptr, *prev_ptr;
-	int	tmp_type;
 	int	done;
 
 	this_event = g_event_free.next;
@@ -823,11 +821,10 @@ add_event_entry(dword64 dfcyc, int type)
 
 	this_event->type = type;
 
-	tmp_type = type & 0xff;
 	if((dfcyc > (g_cur_dfcyc + (50LL*1000*1000 << 16))) ||
-			((dfcyc < g_cur_dfcyc) && (tmp_type != EV_SCAN_INT))) {
-		halt_printf("add_event: dfcyc:%016llx, type:%05x, cur_dfcyc: "
-			"%016llx!\n", dfcyc, type, g_cur_dfcyc);
+						(dfcyc < g_cur_dfcyc)) {
+		halt_printf("add_event bad dfcyc:%016llx, type:%05x, "
+			"cur_dfcyc: %016llx!\n", dfcyc, type, g_cur_dfcyc);
 		dfcyc = g_cur_dfcyc + (1000LL << 16);
 	}
 
@@ -847,27 +844,27 @@ add_event_entry(dword64 dfcyc, int type)
 			this_event->next = ptr;
 			this_event->dfcyc = dfcyc;
 			prev_ptr->next = this_event;
-			return;
+			break;
 		} else {
-			if(ptr->dfcyc < dfcyc) {
-				/* step across this guy */
+			if(ptr->dfcyc < dfcyc) {	// step across this guy
 				prev_ptr = ptr;
 				ptr = ptr->next;
-			} else {
-				/* go in front of this guy */
+			} else {			// go before this guy */
 				this_event->dfcyc = dfcyc;
 				this_event->next = ptr;
 				prev_ptr->next = this_event;
-				return;
+				break;
 			}
 		}
 	}
+
+	check_for_one_event_type(type, 0xffff);
 }
 
 extern int g_doc_saved_ctl;
 
 dword64
-remove_event_entry(int type)
+remove_event_entry(int type, word32 mask)
 {
 	Event	*ptr, *prev_ptr;
 	Event	*next_ptr;
@@ -876,9 +873,8 @@ remove_event_entry(int type)
 	prev_ptr = &g_event_start;
 
 	while(ptr != 0) {
-		if((ptr->type & 0xffff) == type) {
-			/* got it, remove it */
-			next_ptr = ptr->next;
+		if((ptr->type & mask) == (word32)type) {	// got it
+			next_ptr = ptr->next;			// remove it
 			prev_ptr->next = next_ptr;
 
 			/* Add ptr to free list */
@@ -895,9 +891,6 @@ remove_event_entry(int type)
 	if((type & 0xff) == EV_DOC_INT) {
 		printf("DOC, g_doc_saved_ctl = %02x\n", g_doc_saved_ctl);
 	}
-#ifdef HPUX
-	U_STACK_TRACE();
-#endif
 	show_all_events();
 
 	return 0;
@@ -959,22 +952,50 @@ add_event_mockingboard(dword64 dfcyc)
 	add_event_entry(dfcyc, EV_MOCKINGBOARD);
 }
 
+dword64 g_dfcyc_scan_int = 0;
+
+void
+add_event_scan_int(dword64 dfcyc, int line)
+{
+	dword64	dfcyc_scan_int;
+
+	dfcyc_scan_int = g_dfcyc_scan_int;
+	if(dfcyc_scan_int) {				// Event is pending
+		if(dfcyc >= g_dfcyc_scan_int) {
+			// We are after (or the same) as current, do nothing
+			return;
+		}
+		remove_event_entry(EV_SCAN_INT, 0xff);
+	}
+	if(dfcyc < g_cur_dfcyc) {
+		// scan_int for line 0 is found during EV_60HZ, and some
+		//  cycles may have passed before the EV_60HZ was handled.
+		// We need it to happen now, so just adjust dfcyc
+		dfcyc = g_cur_dfcyc;
+	}
+	add_event_entry(dfcyc, EV_SCAN_INT + (line << 8));
+	g_dfcyc_scan_int = dfcyc;
+
+	check_for_one_event_type(EV_SCAN_INT, 0xff);
+}
+
+
 dword64
 remove_event_doc(int osc)
 {
-	return remove_event_entry(EV_DOC_INT + (osc << 8));
+	return remove_event_entry(EV_DOC_INT + (osc << 8), 0xffff);
 }
 
 dword64
 remove_event_scc(int type)
 {
-	return remove_event_entry(EV_SCC + (type << 8));
+	return remove_event_entry(EV_SCC + (type << 8), 0xffff);
 }
 
 void
 remove_event_mockingboard()
 {
-	(void)remove_event_entry(EV_MOCKINGBOARD);
+	(void)remove_event_entry(EV_MOCKINGBOARD, 0xff);
 }
 
 void
@@ -1437,7 +1458,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 	g_last_vbl_dfcyc = g_last_vbl_dfcyc + planned_dcyc;
 
 	add_event_entry(g_last_vbl_dfcyc + planned_dcyc, EV_60HZ);
-	check_for_one_event_type(EV_60HZ);
+	check_for_one_event_type(EV_60HZ, 0xff);
 
 	cur_vbl_index = g_vbl_index_count;
 
@@ -1727,11 +1748,27 @@ do_scan_int(dword64 dfcyc, int line)
 	}
 
 	g_scan_int_events = 0;
+	g_dfcyc_scan_int = 0;
 
 	c023_val = g_c023_val;
 	if(c023_val & 0x20) {
 		halt_printf("c023 scan_int and another on line %03x\n", line);
 	}
+
+#if 0
+	dvbl = (dfcyc >> 16) / 17030;
+	dline = ((dfcyc >> 16) - (dvbl * 17030)) / 65;
+	printf("do_scan_int at time %lld (%lld,line %lld), line:%d, SCB:%02x, "
+		"a2_stat_ok:%d, c023:%02x\n", dfcyc >> 16, dvbl, dline, line,
+		(g_slow_memory_ptr[0x19d00 + line] & 0x40),
+		(g_cur_a2_stat & ALL_STAT_SUPER_HIRES) != 0, c023_val);
+	for(i = 0; i < 200; i++) {
+		if(g_slow_memory_ptr[0x19d00 + i] & 0x40) {
+			printf("  Line %d has SCB:%02x\n", i,
+				g_slow_memory_ptr[0x19d00 + i]);
+		}
+	}
+#endif
 
 	/* make sure scan int is still enabled for this line */
 	if((g_slow_memory_ptr[0x19d00 + line] & 0x40) &&
@@ -1785,13 +1822,11 @@ check_scan_line_int(int cur_video_line)
 				i, line, start);
 			i = 0;
 		}
-		if(g_slow_memory_ptr[0x19d00+i] & 0x40) {
+		if(g_slow_memory_ptr[0x19d00 + i] & 0x40) {
 			irq_printf("Adding scan_int for line %d\n", i);
 			ddelay = (65ULL * line) << 16;
-			add_event_entry(g_last_vbl_dfcyc + ddelay,
-						EV_SCAN_INT + (line << 8));
+			add_event_scan_int(g_last_vbl_dfcyc + ddelay, line);
 			g_scan_int_events = 1;
-			check_for_one_event_type(EV_SCAN_INT);
 			break;
 		}
 	}
@@ -1804,6 +1839,16 @@ check_for_new_scan_int(dword64 dfcyc)
 
 	cur_video_line = get_lines_since_vbl(dfcyc) >> 8;
 	check_scan_line_int(cur_video_line);
+}
+
+void
+scb_changed(dword64 dfcyc, word32 addr, word32 new_val, word32 old_val)
+{
+	if(new_val & (~old_val) & 0x40) {
+		check_for_new_scan_int(dfcyc);
+	}
+	if(addr) {
+	}
 }
 
 void
@@ -1834,21 +1879,12 @@ handle_action(word32 ret)
 	case RET_COP:
 		do_cop(arg);
 		break;
-	case RET_C700:
-		do_c700(arg);
-		break;
-	case RET_C70A:
-		do_c70a(arg);
-		break;
-	case RET_C70D:
-		do_c70d(arg);
-		break;
 	case RET_IRQ:
 		irq_printf("Special fast IRQ response.  irq_pending: %x\n",
 			g_irq_pending);
 		break;
 	case RET_WDM:
-		do_wdm(arg & 0xff);
+		do_wdm(arg);
 		break;
 	case RET_STP:
 		do_stp();
@@ -1882,15 +1918,42 @@ do_cop(word32 ret)
 void
 do_wdm(word32 arg)
 {
-	switch(arg) {
+	if(arg == 0x00c7) {
+		// WDM, 0xc7, 0x00: WDM in Slot 7
+		if(engine.psr & 0x40) {
+			// Overflow set: $C700 called
+			do_c700(arg);
+		} else if(engine.psr & 1) {	// V=0, C=1: $C70D called
+			do_c70d(arg);
+		} else {			// V=0, C=0, $C70A called
+			do_c70a(arg);
+		}
+		return;
+	}
+	if(arg == 0x00ea) {
+		// WDM, 0xea, 0x00: WDM emulator ID
+		do_wdm_emulator_id();
+		return;
+	}
+	if((arg == 0xeaea) && ((engine.psr & 0x171) == 0x41) &&
+						(engine.acc == 0x4d44)) {
+		// WDM $EA,$EA with V=1,C=1 and ACC=0x4d44 ("EM")
+		engine.psr = engine.psr & 0x1bf;	// V=0
+		// printf("WDM $EA,$EA, cleared V=0, psr:%04x\n", engine.psr);
+		return;
+	}
+
+	switch(arg & 0xff) {
 	case 0x8d: /* Bouncin Ferno does WDM 8d */
+		break;
+	case 0xea:	// Detectiong feature, don't flag an error
 		break;
 	case 0xfc:	// HOST.FST "head_call" for ATINIT for ProDOS 8
 	case 0xfd:	// HOST.FST "tail_call" for ATINIT for ProDOS 8
 	case 0xff:	// HOST.FST "call_host" for GS/OS driver
 		break;
 	default:
-		halt_printf("do_wdm: %02x!\n", arg);
+		halt_printf("do_wdm: %04x!\n", arg);
 	}
 }
 
@@ -1908,6 +1971,70 @@ do_stp()
 		halt_printf("Hit STP instruction at: %06x, press RESET to "
 				"continue\n", engine.kpc);
 	}
+}
+
+char g_emulator_name[64];
+
+void
+do_wdm_emulator_id()
+{
+	word32	addr, version, subvers;
+	int	maxlen, len, c, got_dot;
+	int	i;
+
+	// WDM, $EA, $00: WDM emulator ID
+	// dbank.acc = address to write emulator description string
+	// X = size of buffer to hold string
+	// Y = 0 (not checked)
+	// Returns: X: actual length of emulator string (always <=
+	//	value in X at call)
+	// ACC: emulator version as: $VVMN as BCD, so 1.32 is $0132
+	// Y: Emulation feature flags.  bit 0: $c06c-$c06f timer available
+	// Works in emulation mode
+
+	printf("WDM EA at %06x.  acc:%04x, dbank:%02x xreg:%04x\n", engine.kpc,
+				engine.acc, engine.dbank, engine.xreg);
+	maxlen = engine.xreg;
+	cfg_strncpy(&g_emulator_name[0], "KEGS v", 64);
+	cfg_strlcat(&g_emulator_name[0], &g_kegs_version_str[0], 64);
+	len = (int)strlen(&g_emulator_name[0]);
+	addr = engine.acc;
+	engine.xreg = 0;
+	for(i = 0; i < len; i++) {
+		if(i >= maxlen) {
+			break;
+		}
+		addr = (engine.dbank << 8) | (addr & 0xffff);
+		set_memory_c(addr, 0x80 | g_emulator_name[i], 1);
+		addr++;
+		engine.xreg = i + 1;
+	}
+
+	version = 0;
+	subvers = 0;
+	len = (int)strlen(&g_kegs_version_str[0]);
+	got_dot = 0;
+	for(i = 0; i < len; i++) {
+		c = g_kegs_version_str[i];
+		if(c == '.') {
+			got_dot++;
+		}
+		if(got_dot >= 3) {
+			break;
+		}
+		if((c >= '0') && (c <= '9')) {
+			c = c - '0';
+			if(got_dot) {
+				subvers = (subvers << 4) | c;
+				got_dot++;
+			} else {
+				version = (version << 4) | c;
+			}
+		}
+	}
+
+	engine.acc = ((version & 0xff) << 8) | (subvers & 0xff);
+	engine.yreg = 0x01;		// $C06C timer available
 }
 
 void
