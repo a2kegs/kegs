@@ -1,4 +1,4 @@
-const char rcsid_adb_c[] = "@(#)$KmKId: adb.c,v 1.113 2023-09-26 02:58:50+00 kentd Exp $";
+const char rcsid_adb_c[] = "@(#)$KmKId: adb.c,v 1.114 2023-12-10 02:35:10+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -130,6 +130,7 @@ int	g_kbd_buf[MAX_KBD_BUF];
 int	g_kbd_paste_rd_pos = 0;
 int	g_kbd_paste_wr_pos = 0;
 byte	g_kbd_paste_buf[MAX_KBD_PASTE_BUF];
+word32	g_kbd_paste_last_key = 0;
 word32	g_adb_repeat_vbl = 0;
 
 int	g_kbd_dev_addr = 2;		/* ADB physical kbd addr */
@@ -1632,6 +1633,7 @@ adb_paste_update_state()
 int
 adb_paste_add_buf(word32 key)
 {
+	word32	last_key;
 	int	pos;
 
 	// Applesoft reads $C000 to check for ctrl-C after each statement.
@@ -1644,6 +1646,17 @@ adb_paste_add_buf(word32 key)
 	//  to stop--but a paste buffer is in the way.
 	// But, now pressing keys while a paste is pending causes those keys
 	//  to take priority during the paste.
+	last_key = g_kbd_paste_last_key;
+	g_kbd_paste_last_key = key;
+	if(key == 10) {			// \n, newline on Unix
+		key = 13;		// \r, return
+		if(last_key == 13) {
+			key = 0;	// CR, then LF--eat the LF
+		}
+	}
+	if((key == 0) || (key >= 0x80)) {
+		return 0;		// Just skip these keys
+	}
 	pos = g_kbd_paste_wr_pos;
 	if(pos >= MAX_KBD_PASTE_BUF) {
 		return 1;

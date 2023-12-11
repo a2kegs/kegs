@@ -1,4 +1,4 @@
-const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.155 2023-11-22 18:35:34+00 kentd Exp $";
+const char rcsid_config_c[] = "@(#)$KmKId: config.c,v 1.158 2023-12-11 03:18:18+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -74,7 +74,7 @@ extern int g_key_down;
 extern const char g_kegs_version_str[];
 
 int g_config_control_panel = 0;
-char g_config_kegs_name[1024];
+char g_config_kegs_name[1024] = { 0 };
 char g_cfg_cwd_str[CFG_PATH_MAX] = { 0 };
 
 int g_config_kegs_auto_update = 1;
@@ -472,6 +472,57 @@ int	g_menu_inc = 1;
 int	g_menu_max_line = 1;
 int	g_menu_redraw_needed = 1;
 
+#define MAX_CFG_ARGV_OVERRIDES		64
+
+int g_cfg_argv_num_overrides = 0;
+char *g_cfg_argv_overrides[MAX_CFG_ARGV_OVERRIDES];
+
+int
+config_add_argv_override(const char *str1, const char *str2)
+{
+	const char *equal_ptr;
+	char	*str;
+	int	ret, pos, len;
+
+	// Handle things like "rom=rompath" and "rom", "rompath"
+	// Look through str1, see if there is '=', if so ignore str2
+	equal_ptr = strchr(str1, '=');
+	ret = 1;
+	if(equal_ptr) {			// str1 has '=' in it
+		ret = 0;		// Don't eat up str2 argument
+		str = kegs_malloc_str(str1);
+	} else {
+		// We need to form a new string of str1, =, str2
+		len = (int)(strlen(str1) + strlen(str2) + 2);
+		str = malloc(len);
+		cfg_strncpy(str, str1, len);
+		cfg_strlcat(str, "=", len);
+		cfg_strlcat(str, str2, len);
+	}
+	pos = g_cfg_argv_num_overrides++;
+	if(pos >= MAX_CFG_ARGV_OVERRIDES) {
+		g_cfg_argv_num_overrides = MAX_CFG_ARGV_OVERRIDES;
+		fatal_printf("MAX_CFG_ARGV_OVERRIDES overflow\n");
+		my_exit(5);
+		return ret;
+	}
+	g_cfg_argv_overrides[pos] = str;
+	printf("Added config override %d, %s\n", pos, str);
+
+	return ret;
+}
+
+void
+config_set_config_kegs_name(const char *str1)
+{
+	int	maxlen;
+
+	//	Command line override "-cfg cfg_file"
+	g_config_kegs_name[0] = 0;
+	maxlen = (int)sizeof(g_config_kegs_name);
+	cfg_strncpy(&g_config_kegs_name[0], str1, maxlen);
+}
+
 void
 config_init_menus(Cfg_menu *menuptr)
 {
@@ -538,12 +589,22 @@ config_init_menus(Cfg_menu *menuptr)
 void
 config_init()
 {
-	const char **path_ptr;
-	int	maxlen, fd;
-
 	config_init_menus(g_cfg_main_menu);
 
 	// Find the config.kegs file
+	if(g_config_kegs_name[0] == 0) {
+		cfg_find_config_kegs_file();
+	}
+
+	config_parse_config_kegs_file();
+}
+
+void
+cfg_find_config_kegs_file()
+{
+	const char **path_ptr;
+	int	maxlen, fd;
+
 	g_config_kegs_name[0] = 0;
 	maxlen = sizeof(g_config_kegs_name);
 	fd = 0;
@@ -572,8 +633,6 @@ config_init()
 		fatal_printf("Could not create config.kegs!\n");
 		my_exit(2);
 	}
-
-	config_parse_config_kegs_file();
 }
 
 int
@@ -690,9 +749,8 @@ cfg_exit(int get_status)
 	if(get_status) {
 		return 0;
 	}
-	if(g_rom_version >= 1) {
-		cfg_set_config_panel(0);
-	}
+	cfg_toggle_config_panel();
+
 	return 0;
 }
 
@@ -879,122 +937,6 @@ config_vbl_update(int doit_3_persec)
 		}
 	}
 	return;
-}
-
-void
-config_parse_option(char *buf, int pos, int len, int line)
-{
-	Cfg_menu *menuptr;
-	Cfg_defval *defptr;
-	int	*iptr;
-	char	*nameptr;
-	int	num_equals, type, val, c;
-	int	i;
-
-// warning: modifies buf (turns spaces to nulls)
-// parse buf from pos into option, "=" and then "rest"
-	if(pos >= len) {
-		/* blank line */
-		return;
-	}
-
-	if(strncmp(&buf[pos], "bram", 4) == 0) {
-		config_parse_bram(buf, pos+4, len);
-		return;
-	}
-
-	// find "name" as first contiguous string
-	printf("...parse_option: line %d, %p,%p = %s (%s) len:%d\n", line,
-		&buf[pos], buf, &buf[pos], buf, len);
-
-	nameptr = &buf[pos];
-	while(pos < len) {
-		c = buf[pos];
-		if(c == 0 || c == ' ' || c == '\t' || c == '\n') {
-			break;
-		}
-		pos++;
-	}
-	buf[pos] = 0;
-	pos++;
-
-	// Eat up all whitespace and '='
-	num_equals = 0;
-	while(pos < len) {
-		c = buf[pos];
-		if((c == '=') && num_equals == 0) {
-			pos++;
-			num_equals++;
-		} else if(c == ' ' || c == '\t') {
-			pos++;
-		} else {
-			break;
-		}
-	}
-
-	/* Look up nameptr to find type */
-	type = -1;
-	defptr = 0;
-	menuptr = 0;
-	for(i = 0; i < g_cfg_defval_index; i++) {
-		defptr = &(g_cfg_defvals[i]);
-		menuptr = defptr->menuptr;
-		if(strcmp(menuptr->name_str, nameptr) == 0) {
-			type = menuptr->cfgtype;
-			break;
-		}
-	}
-
-	switch(type) {
-	case CFGTYPE_INT:
-		/* use strtol */
-		val = (int)strtol(&buf[pos], 0, 0);
-		iptr = (int *)menuptr->ptr;
-		cfg_int_update(iptr, val);
-		break;
-	case CFGTYPE_FILE:
-	case CFGTYPE_STR:
-		cfg_file_update_ptr(menuptr->ptr, &buf[pos], 0);
-		break;
-	default:
-		printf("Config file variable %s is unknown type: %d\n",
-			nameptr, type);
-	}
-
-}
-
-void
-config_parse_bram(char *buf, int pos, int len)
-{
-	word32	val;
-	int	bram_num, offset;;
-
-	if((len < (pos+5)) || (buf[pos+1] != '[') || (buf[pos+4] != ']')) {
-		fatal_printf("While reading config.kegs, found malformed bram "
-			"statement: %s\n", buf);
-		return;
-	}
-	bram_num = buf[pos] - '0';
-	if(bram_num != 1 && bram_num != 3) {
-		fatal_printf("While reading config.kegs, found bad bram "
-			"num: %s\n", buf);
-		return;
-	}
-
-	bram_num = bram_num >> 1;	// turn 3->1 and 1->0
-
-	offset = (int)strtoul(&(buf[pos+2]), 0, 16);
-	pos += 5;
-	while(pos < len) {
-		while(buf[pos] == ' ' || buf[pos] == '\t' || buf[pos] == 0x0a ||
-				buf[pos] == 0x0d || buf[pos] == '=') {
-			pos++;
-		}
-		val = (word32)strtoul(&buf[pos], 0, 16);
-		clk_bram_set(bram_num, offset, val);
-		offset++;
-		pos += 2;
-	}
 }
 
 void
@@ -1335,12 +1277,10 @@ config_load_roms()
 void
 config_parse_config_kegs_file()
 {
-	FILE	*fconf;
-	char	*buf, *ptr, *name_ptr, *partition_name;
+	char	*bufptr;
 	const char *str;
-	word32	dynamic_blocks;
-	int	part_num, ejected, line, pos, slot, drive, len, ret, c;
-	int	maxlen;
+	dword64	dsize;
+	int	fd, pos, start, size, last_c, line, ret, c, maxlen;
 	int	i;
 
 	printf("Parsing config.kegs file: %s\n", g_config_kegs_name);
@@ -1361,130 +1301,284 @@ config_parse_config_kegs_file()
 		cfg_strncpy(&g_config_kegs_name[0], str, maxlen);
 	}
 
-	/* In any case, copy the directory path to g_cfg_cwd_str */
+	// In any case, copy the current directory path to g_cfg_cwd_str
 	(void)getcwd(&g_cfg_cwd_str[0], CFG_PATH_MAX);
 	printf("CWD is now: %s\n", &g_cfg_cwd_str[0]);
 
-	fconf = fopen(g_config_kegs_name, "r");
-	if(fconf == 0) {
-		fatal_printf("cannot open config.kegs at %s!  Stopping!\n",
-				g_config_kegs_name);
+	fd = open(g_config_kegs_name, O_RDONLY | O_BINARY);
+	dsize = 0;
+	if(fd >= 0) {
+		dsize = cfg_get_fd_size(fd);
+	}
+	if((fd < 0) || (dsize == 0) || (dsize >= (1 << 30))) {
+		fatal_printf("cannot open config.kegs at %s, or it is too "
+			"large!  Stopping!\n", g_config_kegs_name);
 		my_exit(3);
 		return;
 	}
+	size = (int)dsize;
+	bufptr = malloc(size + 2);
+	ret = (int)cfg_read_from_fd(fd, (byte *)bufptr, 0, size);
+	close(fd);
+	if(ret != size) {
+		free(bufptr);
+		fatal_printf("Could not read config.kegs at %s\n",
+							g_config_kegs_name);
+		my_exit(3);
+		return;
+	}
+	bufptr[size] = 0;		// Ensure it's null terminated
 
 	line = 0;
-	while(1) {
-		buf = &g_config_kegs_buf[0];
-		ptr = fgets(buf, CONF_BUF_LEN, fconf);
-		if(ptr == 0) {
-			iwm_printf("Done reading disk_conf\n");
-			break;
-		}
-
+	pos = 0;
+	last_c = 0;
+	while(pos < size) {
 		line++;
-		/* strip off newline(s) */
-		len = (int)strlen(buf);
-		for(i = len - 1; i >= 0; i--) {
-			if((buf[i] != 0x0d) && (buf[i] != 0x0a)) {
+		if((bufptr[pos] == '\n') && (last_c == '\r')) {
+			// CR,LF, just eat the LF
+			pos++;
+		}
+		start = pos;
+		while(pos < size) {
+			c = bufptr[pos];
+			if((c == 0) || (c == '\n') || (c == '\r')) {
+				last_c = c;
+				bufptr[pos] = 0;
 				break;
 			}
-			len = i;
-			buf[i] = 0;
-		}
-
-		iwm_printf("disk_conf[%d]: %s\n", line, buf);
-		if(len > 0 && buf[0] == '#') {
-			iwm_printf("Skipping comment\n");
-			continue;
-		}
-
-		/* determine what this is */
-		pos = 0;
-
-		while(pos < len && (buf[pos] == ' ' || buf[pos] == '\t') ) {
 			pos++;
 		}
-		if((pos + 4) > len || buf[pos] != 's' || buf[pos+2] != 'd' ||
-				buf[pos+1] > '9' || buf[pos+1] < '0') {
-			config_parse_option(buf, pos, len, line);
-			continue;
-		}
-
-		slot = buf[pos+1] - '0';
-		drive = buf[pos+3] - '0';
-
-		/* skip over slot, drive */
-		pos += 4;
-		if(buf[pos] >= '0' && buf[pos] <= '9') {
-			drive = drive * 10 + buf[pos] - '0';
-			pos++;
-		}
-
-		/*	make s6d1 mean index 0 */
-		drive--;
-
-		while(pos < len && (buf[pos] == ' ' || buf[pos] == '\t' ||
-					buf[pos] == '=') ) {
-			pos++;
-		}
-
-		ejected = 0;
-		if(buf[pos] == '#') {
-			/* disk is ejected, but read all the info anyway */
-			ejected = 1;
-			pos++;
-		}
-
-		/* see if it has a partition name */
-		partition_name = 0;
-		part_num = -1;
-		dynamic_blocks = 0;
-		if(buf[pos] == ':') {
-			pos++;
-			/* yup, it's got a partition name! */
-			partition_name = &buf[pos];
-			while((pos < len) && (buf[pos] != ':')) {
-				pos++;
-			}
-			buf[pos] = 0;	/* null terminate partition name */
-			pos++;
-		}
-		c = buf[pos];
-		if((c == ';') || (c == '@')) {
-			pos++;
-			// ; - partition number;  @ - Dynamic ProDOS dir size
-			part_num = 0;
-			while((pos < len) && (buf[pos] != ':')) {
-				part_num = (10*part_num) + buf[pos] - '0';
-				pos++;
-			}
-			pos++;
-			if(c == '@') {		// Dynamic ProDOS directory
-				dynamic_blocks = part_num * 2;
-				part_num = -1;
-			}
-		}
-
-		/* Get filename */
-		name_ptr = &(buf[pos]);
-		if(name_ptr[0] == 0) {
-			continue;
-		}
-
-		insert_disk(slot, drive, name_ptr, ejected, partition_name,
-						part_num, dynamic_blocks);
+		cfg_parse_one_line(&bufptr[start], line);
+		pos++;
 	}
 
-	ret = fclose(fconf);
-	if(ret != 0) {
-		fatal_printf("Closing config.kegs ret: %d, errno: %d\n", ret,
-						errno);
-		my_exit(4);
+	free(bufptr);
+
+	// And now do command line argument overrides
+	for(i = 0; i < g_cfg_argv_num_overrides; i++) {
+		printf("Doing override %d, %s\n", i, g_cfg_argv_overrides[i]);
+		cfg_parse_one_line(g_cfg_argv_overrides[i], 1001 + i);
+		g_config_kegs_update_needed = 1;
+	}
+}
+
+void
+cfg_parse_one_line(char *buf, int line)
+{
+	Cfg_menu *menuptr;
+	Cfg_defval *defptr;
+	int	*iptr;
+	const char *nameptr;
+	int	pos, num_equals, type, val, c, len;
+	int	i;
+
+	// warning: modifies memory of bufptr (turns spaces to nulls)
+
+	len = (int)strlen(buf);
+	if(len <= 1) {		// Not a valid line, just get out
 		return;
 	}
 
-	iwm_printf("Done parsing disk_conf file\n");
+	printf("disk_conf[%d]: %s\n", line, buf);
+	if(buf[0] == '#') {
+		iwm_printf("Skipping comment\n");
+		return;
+	}
+
+	pos = 0;
+
+	while((pos < len) && (buf[pos] == ' ' || buf[pos] == '\t') ) {
+		pos++;		// Eat whitespace
+	}
+	if(pos >= len) {
+		return;		// blank line
+	}
+	if((pos + 5) < len) {
+		c = buf[pos+1];		// Slot number
+		if((buf[pos] == 's') && (buf[pos+2] == 'd') &&
+					(c >= '5' && c <= '7')) {
+			// looks like s5d1 through s7d15, parse that
+			cfg_parse_sxdx(buf, pos, len);
+			return;
+		}
+	}
+
+// parse buf from pos into option, "=" and then "rest"
+
+	if(strncmp(&buf[pos], "bram", 4) == 0) {
+		cfg_parse_bram(buf, pos+4, len);
+		return;
+	}
+
+	// find "name" as first contiguous string
+	printf("...parse_option: line %d, %s (%s) len:%d\n", line, buf,
+							&buf[pos], len);
+
+	nameptr = &buf[pos];
+	while(pos < len) {
+		c = buf[pos];
+		if((c == 0) || (c == ' ') || (c == '\t') || (c == '\n') ||
+								(c == '=')) {
+			break;
+		}
+		pos++;
+	}
+	buf[pos] = 0;
+	if(strcmp(nameptr, "rom") == 0) {
+		// Translate argument of "-rom" to "g_cfg_rom_path"
+		nameptr = "g_cfg_rom_path";
+	}
+	pos++;
+
+	// Eat up all whitespace and '='
+	num_equals = 0;
+	while(pos < len) {
+		c = buf[pos];
+		if((c == '=') && (num_equals == 0)) {
+			pos++;
+			num_equals++;
+		} else if(c == ' ' || c == '\t') {
+			pos++;
+		} else {
+			break;
+		}
+	}
+
+	/* Look up nameptr to find type */
+	type = -1;
+	defptr = 0;
+	menuptr = 0;
+	for(i = 0; i < g_cfg_defval_index; i++) {
+		defptr = &(g_cfg_defvals[i]);
+		menuptr = defptr->menuptr;
+		if(strcmp(menuptr->name_str, nameptr) == 0) {
+			type = menuptr->cfgtype;
+			break;
+		}
+	}
+
+	switch(type) {
+	case CFGTYPE_INT:
+		/* use strtol */
+		val = (int)strtol(&buf[pos], 0, 0);
+		iptr = (int *)menuptr->ptr;
+		cfg_int_update(iptr, val);
+		break;
+	case CFGTYPE_FILE:
+	case CFGTYPE_STR:
+		cfg_file_update_ptr(menuptr->ptr, &buf[pos], 0);
+		break;
+	default:
+		printf("Config file variable %s is unknown type: %d\n",
+			nameptr, type);
+	}
+}
+
+void
+cfg_parse_bram(char *buf, int pos, int len)
+{
+	word32	val;
+	int	bram_num, offset;
+
+	// Format: "bram1[00] = xx yy..." or "bram3[00] = xx yy ..."
+	// pos = position just after "bram"
+	if((len < (pos+5)) || (buf[pos+1] != '[') || (buf[pos+4] != ']')) {
+		fatal_printf("While reading config.kegs, found malformed bram "
+			"statement: %s\n", buf);
+		return;
+	}
+	bram_num = buf[pos] - '0';
+	if((bram_num != 1) && (bram_num != 3)) {
+		fatal_printf("While reading config.kegs, found bad bram "
+			"num: %s\n", buf);
+		return;
+	}
+
+	bram_num = bram_num >> 1;	// turn 3->1 and 1->0
+
+	offset = (int)strtoul(&(buf[pos+2]), 0, 16);
+	pos += 5;
+	while(pos < len) {
+		if((buf[pos] == ' ') || (buf[pos] == '\t') ||
+				(buf[pos] == 0x0a) || (buf[pos] == 0x0d) ||
+				(buf[pos] == '=')) {
+			pos++;
+			continue;
+		}
+		val = (word32)strtoul(&buf[pos], 0, 16);	// As hex
+		clk_bram_set(bram_num, offset, val);
+		offset++;
+		pos += 2;
+	}
+}
+
+void
+cfg_parse_sxdx(char *buf, int pos, int len)
+{
+	char	*name_ptr, *partition_name;
+	word32	dynamic_blocks;
+	int	part_num, ejected, slot, drive, c;
+
+	slot = buf[pos+1] - '0';
+	drive = buf[pos+3] - '0';
+
+	/* skip over slot, drive */
+	pos += 4;
+	if((buf[pos] >= '0') && (buf[pos] <= '9')) {
+		// Second digit of drive is valid
+		drive = (drive * 10) + buf[pos] - '0';
+		pos++;
+	}
+
+	drive--;	// make sxd1 mean index 0
+
+	while((pos < len) && ((buf[pos] == ' ') || (buf[pos] == '\t') ||
+							(buf[pos] == '=')) ) {
+		pos++;
+	}
+
+	ejected = 0;
+	if(buf[pos] == '#') {	// disk is ejected, but read info anyway
+		ejected = 1;
+		pos++;
+	}
+
+	partition_name = 0;
+	part_num = -1;
+	dynamic_blocks = 0;
+	if(buf[pos] == ':') {		// yup, it's got a partition name!
+		pos++;
+		partition_name = &buf[pos];
+		while((pos < len) && (buf[pos] != ':')) {
+			pos++;
+		}
+		buf[pos] = 0;	/* null terminate partition name */
+		pos++;
+	}
+	c = buf[pos];
+	if((c == ';') || (c == '@')) {
+		pos++;
+		// ; - partition number;  @ - Dynamic ProDOS dir size
+		part_num = 0;
+		while((pos < len) && (buf[pos] != ':')) {
+			part_num = (10*part_num) + buf[pos] - '0';
+			pos++;
+		}
+		pos++;
+		if(c == '@') {		// Dynamic ProDOS directory
+			dynamic_blocks = part_num * 2;
+			part_num = -1;
+		}
+	}
+
+	/* Get filename */
+	name_ptr = &(buf[pos]);
+	if((pos >= len) || (name_ptr[0] == 0)) {
+		return;
+	}
+
+	insert_disk(slot, drive, name_ptr, ejected, partition_name,
+						part_num, dynamic_blocks);
 }
 
 void
@@ -3459,7 +3553,7 @@ cfg_strlcat(char *dstptr, const char *srcptr, int dstsize)
 		}
 		destlen++;
 	}
-	dstptr[dstsize - 1] = 0;
+	dstptr[dstsize] = 0;
 	return ret;
 }
 

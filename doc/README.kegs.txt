@@ -1,5 +1,5 @@
 
-KEGS: Kent's Emulated GS version 1.30
+KEGS: Kent's Emulated GS version 1.33
 http://kegs.sourceforge.net/
 
 What is this?
@@ -347,7 +347,7 @@ window take up nearly the full screen without being "full screen" mode.
 
 
 Joystick Emulation (Mouse, Keypad, or real native joystick):
-------------------
+-----------------------------------------------------------
 
 The default joystick is the mouse position.  Upper left is 0,0.  Lower right
 is 255,255.  Press Shift-F9 to swap the X and Y axes.  Press F9 to reverse
@@ -487,6 +487,12 @@ X-Windows/Linux options
 	by as much as a factor of 10!  By default, -noshm causes an
 	effective -skip of 3 which is 15 fps.  You can override this
 	default by specifying a -skip explicitly.
+-cfg:  Next argument gives the path and name of the config.kegs file to use
+-rom=path_to_rom or -rom path_to_rom: Selects the ROM file, either a //e
+	ROM file, or a IIgs ROM 01 or ROM 03 file.
+-s5d1=path_to_image or -s5d1 path_to_image mounts the selected image in
+	Slot 5 Drive 1 (800KB disk).  Can use -s5d1 through -s6d2, as
+	well as -s7d1 through -s7d12.
 
 
 Apple IIgs Control Panel:
@@ -511,7 +517,19 @@ a ProDOS volume for ProDOS 8 or GS/OS.  Then use GS/OS (or any other program)
 to move files to emulated volumes, or just keep using Dynapro.  See
 README.dynapro.txt for more details.
 
-The old utility "to_pro" is now obsolete and removed.
+From the debugger (press F7 to open the Debugger window), you can load and
+save any memory address to a Unix host file.  To save the hires page 1
+screen, use:
+
+2000.3fffus hgr1
+
+Saves from $2000 through $3fff to the file "hgr1".  You can also load memory
+from a file using:
+
+300ul helper
+
+Loads the contents of the file "helper" at $300.
+
 
 Using the VOC
 -------------
@@ -584,7 +602,7 @@ Woz image, KEGS automatically acts as if fast_disk_emul is disabled.
 KEGS Timing:
 -----------
 
-KEGS supports running at four speeds:  1MHz, 2.8MHz, 8.0MHz (ZipGS), and
+KEGS supports running at four speeds:  1MHz, 2.8MHz, 8.0MHz-128MHz (ZipGS), and
 Unlimited.  Pressing the the F6 key cycles between these modes.  The
 1MHz and 2.8MHz speeds force KEGS to run at exactly those speeds,
 providing accurate reproduction of a real Apple IIgs.
@@ -850,7 +868,7 @@ The status area is updated once each second.  It displays info I am
 (or was at some time) interested in seeing.
 
 Line 1: (Emulation speed info)
-dcycs:  number of seconds since KEGS was started
+dfcyc:  number of seconds since KEGS was started
 sim MHz:  Effective speed of KEGS instruction emulation, not counting
 		overhead for video or sound routines.
 Eff MHz:  Above, but with overhead accounted for.  Eff MHz is the
@@ -859,59 +877,14 @@ Eff MHz:  Above, but with overhead accounted for.  Eff MHz is the
 sec:	The number of real seconds that have passed during on of KEGS's
 		emulated seconds. Should be 1.00 +/- .01.  Under 1
 		means KEGS is running a bit fast, over 1 means KEGS is
-		running slow.  When you force speed to 2.5MHz, if KEGS
+		running slow.  When you force speed to 2.8MHz, if KEGS
 		can't keep up, it extends sec, so you can see how slow
 		it's really going here.
 vol:	Apple IIgs main audio volume control, in hex, from 0-F.
-pal:	Super-hires palette that is unavailable.  KEGS needs one palette
-		for the standard Apple // graphics mode on an 8-bit display,
-		and it grabs the least-used palette.  Defaults to 0xe.
-		You can try changing it with F10.  If you change it to a
-		palette that is not least used, KEGS changes it back in
-		one second.  Any superhires lines using the unavailable
-		palette will have their colors mapped into the
-		closest-matching "lores" colors, to minimize visual
-		impact.
 Limit:	Prints which speed setting the user has requested: 1MHz, 2.8MHz,
-		or Unlimited.
+		8MHz=128MHz, or Unlimited.
 
-Line 2: (Video and X info)
-xfer:  In hex, number of bytes transferred to the X screen per second.
-xred_cs:	Percentage of Unix processor cycles that were spent in the X
-		server (or other processes on the machine).
-ch_in:	Percentage of Unix processor cycles spent checking for X input Events.
-ref_l:	Percentage of Unix processor cycles spent scanning the Apple IIgs
-		memory for changes to the current display screen memory,
-		and copying those changes to internal XImage buffers.
-pix/fr:	Number of pixels changed on average for the last 60 frames.
-
-
-Line 3: (Interpreter overhead)
-Ints:  Number of Apple IIgs interrupts over the last second.
-I/O:	Rate of I/O through the fake smartport interface (hard drives).
-		Does not count 3.5" or 5.25" disk accesses.
-BRK:	Number of BRKs over the last second.
-COP:	Number of COPs over the last second.
-Eng:	Number of calls to the main instruction interpreter loop in the
-		last second.  All "interrupts" or other special behavior
-		causes the main interpreter loop to exit.  A high call
-		rate here indicates a lot of overhead.  12000-15000 is normal.
-		20000+ indicates some sort of problem.
-act:	Some instructions are handled by the main interpreter loop returning
-		special status "actions" to main event loop.  This is the
-		number over the last second.  Should be low.
-rev:	This tracks EVENTs.  KEGS returns to the main loop to recalc
-		effective speed whenever any speed-changing I/O location is
-		touched.  See the code, mostly in moremem.c
-esi:	This counts the number of superhires scan-line interrupts
-		taken in the last second.
-edi:	This counts the number of Ensoniq "special events" over the last
-		second.  A sound that stops playing always causes a KEGS
-		event, even if it doesn't cause a IIgs interrupt.
-
-Line 4: Not used
-
-Line 5: (Host overhead)
+Line 2: (Host overhead)
 sleep_dtime:	Amount of time, in seconds, where KEGS "slept" for the last
 		second.  Indicates how idle KEGS was.
 out_16ms:	Amount of time, in seconds, KEGS spent drawing to the host
@@ -921,7 +894,7 @@ in_16ms:	Amount of time, in seconds, KEGS spent emulating the Apple IIgs
 snd_pl:		Number of times a sound parameter was changed while it
 		was playing, but there will always be 60 per second minimum.
 
-Line 6: (IWM info)
+Line 3: (IWM info)
 For each IWM device, this line displays the current track (and side for
 3.5" disks).  If a disk is spinning, there will be an "*" next to the
 track number.  Only updated once a second, so the disk arm moving may
@@ -942,8 +915,6 @@ Describe my changes to SPEEDTEST.
 KEGS To-Do:
 ----------
 
-Better serial port emulation (printing, comm)
-Better nibblized images.
 Fix the Ensoniq bugs to make sound more accurate.
 
 -------------------

@@ -1,4 +1,4 @@
-// $KmKId: MainView.swift,v 1.39 2023-06-16 19:33:37+00 kentd Exp $
+// $KmKId: MainView.swift,v 1.40 2023-12-10 02:34:34+00 kentd Exp $
 
 //	Copyright 2019-2023 by Kent Dickey
 //	This code is covered by the GNU GPL v3
@@ -358,22 +358,11 @@ class MainView: NSView {
 		}
 		//print("str: \(str)")
 		for raw_c in str.utf8 {
-			var c: Int
-			c = Int(raw_c)
-			// Don't paste in ctrl-chars and other junk
-			if(c == 10) {
-				c = 13		// Newline to Return
-			} else if((c == 9) || (c == 13)) {	// Tab, return
-				// Just allow it
-			} else if(c < 32) {
-				c = 0
-			}
-			if((c != 0) && (c < 0x7f)) {
-				let ret = adb_paste_add_buf(UInt32(c))
-				if(ret != 0) {
-					print("Paste too large!")
-					return;
-				}
+			let c = UInt32(raw_c)
+			let ret = adb_paste_add_buf(c)
+			if(ret != 0) {
+				print("Paste too large!")
+				return;
 			}
 		}
 	}

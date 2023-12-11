@@ -1,4 +1,4 @@
-const char rcsid_xdriver_c[] = "@(#)$KmKId: xdriver.c,v 1.240 2023-06-16 19:30:18+00 kentd Exp $";
+const char rcsid_xdriver_c[] = "@(#)$KmKId: xdriver.c,v 1.241 2023-12-10 02:34:14+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -1047,19 +1047,10 @@ x_handle_paste(Window w, Atom property)
 		//printf("bptr: %s\n", (char *)bptr);
 		for(i = 0; i < sel_nitems; i++) {
 			c = bptr[i];
-			if(c == 10) {
-				c = 13;		// newline -> return
-			} else if((c == 9) || (c == 13)) {
-				// Allow these unchanged
-			} else if(c < 32) {
-				c = 0;
-			}
-			if((c > 0) && (c < 0x7f)) {
-				ret2 = adb_paste_add_buf(c);
-				if(ret2) {
-					printf("Paste buffer full!\n");
-					break;
-				}
+			ret2 = adb_paste_add_buf(c);
+			if(ret2) {
+				printf("Paste buffer full!\n");
+				break;
 			}
 		}
 	}

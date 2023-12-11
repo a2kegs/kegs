@@ -11,7 +11,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.158 2023-11-23 03:22:51+00 kentd Exp $";
+const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.159 2023-12-09 17:45:53+00 kentd Exp $";
 #endif
 
 #ifdef __GNUC__
@@ -144,8 +144,11 @@ void do_clock_data(void);
 
 
 /* config.c */
+int config_add_argv_override(const char *str1, const char *str2);
+void config_set_config_kegs_name(const char *str1);
 void config_init_menus(Cfg_menu *menuptr);
 void config_init(void);
+void cfg_find_config_kegs_file(void);
 int config_setup_kegs_file(char *outname, int maxlen, const char **name_ptr);
 int config_expand_path(char *out_ptr, const char *in_ptr, int maxlen);
 char *cfg_exit(int get_status);
@@ -159,14 +162,15 @@ char *cfg_get_serial0_status(int get_status);
 char *cfg_get_serial1_status(int get_status);
 char *cfg_get_current_copy_selection(void);
 void config_vbl_update(int doit_3_persec);
-void config_parse_option(char *buf, int pos, int len, int line);
-void config_parse_bram(char *buf, int pos, int len);
 void cfg_file_update_rom(const char *str);
 void cfg_file_update_ptr(char **strptr, const char *str, int need_update);
 void cfg_int_update(int *iptr, int new_val);
 void cfg_load_charrom(void);
 void config_load_roms(void);
 void config_parse_config_kegs_file(void);
+void cfg_parse_one_line(char *buf, int line);
+void cfg_parse_bram(char *buf, int pos, int len);
+void cfg_parse_sxdx(char *buf, int pos, int len);
 void config_generate_config_kegs_name(char *outstr, int maxlen, Disk *dsk, int with_extras);
 char *config_write_config_kegs_file(int get_status);
 void insert_disk(int slot, int drive, const char *name, int ejected, const char *partition_name, int part_num, word32 dynamic_blocks);
@@ -521,8 +525,6 @@ void my_exit(int ret);
 void do_reset(void);
 byte *memalloc_align(int size, int skip_amt, void **alloc_ptr);
 void memory_ptr_init(void);
-int parse_argv_file_override(const char *str1, const char *str2);
-void parse_do_file_overrides(void);
 int parse_argv(int argc, char **argv, int slashes_to_find);
 int kegs_init(int mdepth);
 void load_roms_init_memory(void);

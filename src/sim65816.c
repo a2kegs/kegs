@@ -1,4 +1,4 @@
-const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.480 2023-11-23 03:35:00+00 kentd Exp $";
+const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.482 2023-12-09 17:43:41+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -81,7 +81,7 @@ int	g_code_yellow = 0;
 int	g_emul_6502_ind_page_cross_bug = 0;
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "1.32";
+const char g_kegs_version_str[] = "1.33";
 
 dword64	g_last_vbl_dfcyc = 0;
 dword64	g_cur_dfcyc = 1;
@@ -483,55 +483,6 @@ extern int g_use_bw_hires;
 char g_display_env[512];
 int	g_screen_depth = 8;
 
-#define MAX_PARSE_FILE_OVERRIDES	20
-
-int g_parse_num_file_overrides = 0;
-const char *g_parse_file_override_str1[MAX_PARSE_FILE_OVERRIDES];
-const char *g_parse_file_override_str2[MAX_PARSE_FILE_OVERRIDES];
-
-int
-parse_argv_file_override(const char *str1, const char *str2)
-{
-	const char *may_str2;
-	int	ret, pos;
-
-	// Handle things like "rom=rompath" and "rom", "rompath"
-	// Look through str1, determine if there is '=', if so ignore str2
-	may_str2 = strchr(str1, '=');
-	ret = 1;
-	if(may_str2) {
-		str2 = may_str2 + 1;
-		ret = 0;
-	}
-	pos = g_parse_num_file_overrides++;
-	if(pos >= MAX_PARSE_FILE_OVERRIDES) {
-		fatal_printf("MAX_PARSE_FILE_OVERRIDES overflow\n");
-		my_exit(5);
-		return ret;
-	}
-	g_parse_file_override_str1[pos] = str1;
-	g_parse_file_override_str2[pos] = str2;
-	printf("Added override %d, %s = %s\n", pos, str1, str2);
-	return ret;
-}
-
-void
-parse_do_file_overrides()
-{
-	const char *str1, *str2;
-	int	i;
-
-	for(i = 0; i < g_parse_num_file_overrides; i++) {
-		str1 = g_parse_file_override_str1[i];
-		str2 = g_parse_file_override_str2[i];
-		if(!strncmp(str1, "-rom", 4)) {
-			cfg_file_update_rom(str2);
-		} else {
-			printf("file override %s unknown\n", str1);
-		}
-	}
-}
-
 int
 parse_argv(int argc, char **argv, int slashes_to_find)
 {
@@ -579,7 +530,8 @@ parse_argv(int argc, char **argv, int slashes_to_find)
 	}
 	printf("g_argv0_path: %s\n", g_argv0_path);
 
-	for(i = 1; i < argc; i++) {
+	i = 0;
+	while(++i < argc) {
 		printf("argv[%d] = %s\n", i, argv[i]);
 		if(!strcmp("-badrd", argv[i])) {
 			printf("Halting on bad reads\n");
@@ -677,12 +629,17 @@ parse_argv(int argc, char **argv, int slashes_to_find)
 		} else if(!strcmp("-logpc", argv[i])) {
 			printf("Force logpc enable\n");
 			debug_logpc_on("on");
-		} else if(!strncmp("-rom", argv[i], 4)) {
+		} else if(!strncmp("-cfg", argv[i], 4)) {
+			if((i + 1) < argc) {
+				config_set_config_kegs_name(argv[i+1]);
+			}
+			i++;
+		} else if(argv[i][0] == '-') {
 			arg2_str = 0;
 			if((i + 1) < argc) {
 				arg2_str = argv[i+1];
 			}
-			i += parse_argv_file_override(argv[i], arg2_str);
+			i += config_add_argv_override(&argv[i][1], arg2_str);
 		} else {
 			printf("Bad option: %s\n", argv[i]);
 			return 3;
@@ -715,7 +672,6 @@ kegs_init(int mdepth)
 	setup_pageinfo();
 
 	config_init();
-	parse_do_file_overrides();
 	load_roms_init_memory();
 
 	clear_halt();
@@ -1098,6 +1054,9 @@ run_16ms()
 	g_dtime_sleep = 1.0/61.0;		// For control_panel/debugger
 	if(g_config_control_panel) {
 		ret = cfg_control_panel_update();
+		if(!g_config_control_panel) {
+			return 0;	// Was just switched off, get out
+		}
 	} else {
 		if(g_halt_sim) {
 			ret = debugger_run_16ms();
